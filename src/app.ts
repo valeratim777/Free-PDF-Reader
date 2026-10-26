@@ -321,13 +321,17 @@ export class App {
     if (!(await this.confirmDiscard())) return;
     const picker = (window as unknown as { showOpenFilePicker?: (o: unknown) => Promise<FileSystemFileHandle[]> }).showOpenFilePicker;
     if (picker) {
+      let handle: FileSystemFileHandle | undefined;
       try {
-        const [handle] = await picker({ types: [{ description: 'PDF', accept: { 'application/pdf': ['.pdf'] } }], multiple: false });
-        await this.openFile(await handle.getFile(), handle);
+        [handle] = await picker({ types: [{ description: 'PDF', accept: { 'application/pdf': ['.pdf'] } }], multiple: false });
       } catch (e) {
-        if ((e as Error).name !== 'AbortError') toast(String((e as Error).message), 'error');
+        // Cancelled by the user; anything else (e.g. not allowed in an embedded page) falls back to the classic picker.
+        if ((e as Error).name === 'AbortError') return;
       }
-      return;
+      if (handle) {
+        await this.openFile(await handle.getFile(), handle);
+        return;
+      }
     }
     const files = await pickFiles('application/pdf,.pdf', false);
     if (files[0]) await this.openFile(files[0]);

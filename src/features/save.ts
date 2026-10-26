@@ -86,6 +86,25 @@ async function writeHandle(handle: FileSystemFileHandle, bytes: Uint8Array): Pro
   await w.close();
 }
 
+/**
+ * Asks where to save and writes the file. 'cancelled' when the user closed the dialog,
+ * 'unavailable' when the browser refused to show it (embedded pages) so a download is used instead.
+ */
+async function pickAndWrite(picker: SavePicker, bytes: Uint8Array): Promise<'saved' | 'cancelled' | 'unavailable'> {
+  busy(false);
+  let h: FileSystemFileHandle;
+  try {
+    h = await picker({ suggestedName: suggestedName(), types: [{ description: 'PDF', accept: { 'application/pdf': ['.pdf'] } }] });
+  } catch (e) {
+    return (e as Error).name === 'AbortError' ? 'cancelled' : 'unavailable';
+  }
+  busy(true, t('saving'));
+  await writeHandle(h, bytes);
+  store.fileHandle = h;
+  store.fileName = h.name;
+  return 'saved';
+}
+
 /** Save: back to the opened file when possible; otherwise ask where (desktop) or download. */
 export async function save(asNew = false): Promise<boolean> {
   if (!store.isOpen) {
@@ -99,20 +118,10 @@ export async function save(asNew = false): Promise<boolean> {
     const handle = store.fileHandle;
     if (!asNew && handle && 'createWritable' in handle) {
       await writeHandle(handle, bytes);
-    } else if (picker) {
-      busy(false);
-      let h: FileSystemFileHandle;
-      try {
-        h = await picker({ suggestedName: suggestedName(), types: [{ description: 'PDF', accept: { 'application/pdf': ['.pdf'] } }] });
-      } catch {
-        return false; // user cancelled
-      }
-      busy(true, t('saving'));
-      await writeHandle(h, bytes);
-      store.fileHandle = h;
-      store.fileName = h.name;
     } else {
-      downloadBlob(new Blob([bytes.slice()], { type: 'application/pdf' }), suggestedName());
+      const r = picker ? await pickAndWrite(picker, bytes) : 'unavailable';
+      if (r === 'cancelled') return false;
+      if (r === 'unavailable') downloadBlob(new Blob([bytes.slice()], { type: 'application/pdf' }), suggestedName());
     }
     store.dirty = false;
     store.emit({ kind: 'doc' });
