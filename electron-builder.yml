@@ -1,5 +1,5 @@
 # Desktop packages. `npm run dist:win` builds the Windows installer and a
-# portable .exe into release/. Works on Linux too (no code signing).
+# portable .exe into release/. On Linux the installer step needs Wine.
 appId: io.github.valeratim777.pdfreader
 productName: PDF Reader
 copyright: Copyright © 2026 valeratim777
@@ -25,8 +25,8 @@ win:
       arch: [x64]
     - target: portable
       arch: [x64]
-  # Resource editing needs Wine on non-Windows hosts; the window icon is set at runtime.
-  signAndEditExecutable: false
+  # No code-signing certificate; icon and version info are still written into the .exe.
+  signExecutable: false
 nsis:
   oneClick: false
   perMachine: false
@@ -34,6 +34,9 @@ nsis:
   createDesktopShortcut: true
   createStartMenuShortcut: true
   shortcutName: PDF Reader
+  # Installer screens follow the Windows display language.
+  multiLanguageInstaller: true
+  installerLanguages: [ru_RU, en_US]
   artifactName: PDF-Reader-Setup-${version}.exe
 portable:
   artifactName: PDF-Reader-${version}-portable.exe
