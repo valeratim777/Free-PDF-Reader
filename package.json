@@ -1,0 +1,29 @@
+{
+  "name": "pdf-reader",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "predev": "node scripts/copy-assets.mjs",
+    "dev": "vite",
+    "prebuild": "node scripts/copy-assets.mjs",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@cantoo/fontkit": "^2.0.12",
+    "@cantoo/pdf-lib": "^2.11.1",
+    "fflate": "^0.8.3",
+    "lucide": "^1.61.0",
+    "pdfjs-dist": "^6.4.299"
+  },
+  "devDependencies": {
+    "dejavu-fonts-ttf": "^2.37.3",
+    "typescript": "^5.9.3",
+    "vite": "^7.3.7",
+    "vitest": "^5.0.5"
+  },
+  "description": "Cross-platform PDF reader and editor (PWA) for desktop and mobile"
+}
