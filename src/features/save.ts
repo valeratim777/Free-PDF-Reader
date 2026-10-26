@@ -4,6 +4,7 @@ import { pdfjs, docOptions } from '../pdfjs';
 import { pageInfo } from '../pages';
 import type { Rect } from '../model';
 import { busy, downloadBlob, toast } from '../ui/dom';
+import { isNativeApp, nativeShare } from './native';
 import { t } from '../i18n';
 
 export interface SaveOptions {
@@ -125,7 +126,7 @@ export async function save(asNew = false): Promise<boolean> {
     }
     store.dirty = false;
     store.emit({ kind: 'doc' });
-    toast(t('saved'), 'success');
+    if (!isNativeApp()) toast(t('saved'), 'success');
     return true;
   } catch (e) {
     console.error(e);
@@ -152,6 +153,7 @@ export async function download(): Promise<void> {
 }
 
 export function canShareFiles(): boolean {
+  if (isNativeApp()) return true;
   try {
     const f = new File([new Uint8Array(1)], 'x.pdf', { type: 'application/pdf' });
     return !!navigator.canShare?.({ files: [f] });
@@ -174,7 +176,8 @@ export async function share(): Promise<void> {
     busy(false);
   }
   try {
-    await navigator.share({ files: [file], title: file.name });
+    if (isNativeApp()) await nativeShare(file, file.name);
+    else await navigator.share({ files: [file], title: file.name });
     store.dirty = false;
     store.emit({ kind: 'doc' });
   } catch (e) {
