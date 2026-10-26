@@ -21,7 +21,8 @@ import { stampBox } from '../decor';
 import { renderAnn } from './render';
 import type { Viewer } from '../viewer/viewer';
 import type { PageView } from '../viewer/pageView';
-import { h, toast } from '../ui/dom';
+import { h, icon, toast } from '../ui/dom';
+import { Copy, SquarePen, Trash2 } from 'lucide';
 import { rawTextContent } from '../text';
 
 export type Tool =
@@ -275,7 +276,7 @@ export class Tools extends EventTarget {
   }
 
   refreshSelection(): void {
-    for (const v of this.viewer.order) v.uiDiv.querySelectorAll('.sel-box, .sel-handle').forEach((n) => n.remove());
+    for (const v of this.viewer.order) v.uiDiv.querySelectorAll('.sel-box, .sel-handle, .sel-actions').forEach((n) => n.remove());
     const a = this.selected ? store.ann(this.selected) : null;
     if (!a) {
       if (this.selected) {
@@ -293,6 +294,7 @@ export class Tools extends EventTarget {
     });
     el.addEventListener('pointerdown', (e) => this.startMove(e, pv, a));
     pv.uiDiv.append(el);
+    if (!this.gesture) this.showActions(pv, a, { left: box.left - pad, top: box.top - pad, width: box.width + pad * 2, height: box.height + pad * 2 });
     if (a.type === 'line' || a.type === 'arrow') {
       for (const which of ['p1', 'p2'] as const) {
         const p = pv.toView(a[which]);
@@ -329,6 +331,27 @@ export class Tools extends EventTarget {
     });
   }
 
+  /** Small floating toolbar next to the selected mark: the actions people need right there. */
+  private showActions(pv: PageView, a: Annotation, box: { left: number; top: number; width: number; height: number }): void {
+    const btn = (ic: Parameters<typeof icon>[0], label: string, fn: () => void, cls = '') =>
+      h('button', { type: 'button', class: cls, title: label, onclick: fn }, icon(ic, 16), h('span', {}, label));
+    const bar = h('div.sel-actions', { role: 'toolbar' });
+    if (a.type === 'text' || a.type === 'note') bar.append(btn(SquarePen, t('editMark'), () => this.edit(a)));
+    bar.append(btn(Copy, t('duplicate'), () => this.duplicateSelected()), btn(Trash2, t('delete'), () => this.deleteSelected(), 'danger'));
+    bar.addEventListener('pointerdown', (e) => e.stopPropagation());
+    pv.uiDiv.append(bar);
+    const w = bar.offsetWidth;
+    const hh = bar.offsetHeight;
+    const pw = pv.div.offsetWidth;
+    const ph = pv.div.offsetHeight;
+    let top = box.top - hh - 8;
+    if (top < 4) top = box.top + box.height + 8;
+    if (top + hh > ph - 4) top = Math.max(4, Math.min(ph - hh - 4, box.top + 4));
+    const left = Math.max(4, Math.min(pw - w - 4, box.left + box.width / 2 - w / 2));
+    bar.style.left = `${left}px`;
+    bar.style.top = `${top}px`;
+  }
+
   // ---- pointer handling ----
 
   /** Arms one-shot placement: the next tap on a page calls `fn` with that point. */
@@ -351,7 +374,7 @@ export class Tools extends EventTarget {
   private onDown(e: PointerEvent): void {
     if (e.button !== 0 && e.pointerType === 'mouse') return;
     const target = e.target as HTMLElement;
-    if (target.closest('.sel-box, .sel-handle, .text-editor, .note-editor')) return;
+    if (target.closest('.sel-box, .sel-handle, .sel-actions, .text-editor, .note-editor')) return;
     const pv = this.viewer.viewOf(target);
     if (!pv) return;
     const p = pv.toUser(e.clientX, e.clientY);
@@ -818,7 +841,11 @@ export class Tools extends EventTarget {
         if (text && (text !== original || !extra.length)) {
           const a = relayoutText({ ...cur, text });
           store.commit('anns', (s) => s.anns.push(...extra, a), [pv.page.id]);
-          if (!extra.length) this.select(a.id);
+          if (!extra.length) {
+            // One text box per click: go back to Select so the next tap doesn't create another.
+            if (this.tool === 'text') this.setTool('select');
+            this.select(a.id);
+          }
         } else pv.drawOverlay();
       } else if (!text) {
         store.removeAnns([cur.id]);
@@ -892,6 +919,7 @@ export class Tools extends EventTarget {
       if (!commit) return;
       if (isNew) {
         if (text) store.addAnn({ ...note, text });
+        if (this.tool === 'note') this.setTool('select');
       } else if (text !== note.text) {
         store.replaceAnn({ ...note, text });
       }

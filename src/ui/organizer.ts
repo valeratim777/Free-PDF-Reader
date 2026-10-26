@@ -6,7 +6,7 @@ import { t } from '../i18n';
 import { uid, type DocPage, type QuarterTurn } from '../model';
 import { visualSize } from '../pages';
 import { drawThumb } from './thumbs';
-import { busy, dialog, downloadBlob, field, h, iconButton, pickFiles, select, toast } from './dom';
+import { busy, dialog, downloadBlob, field, h, icon, iconButton, pickFiles, select, toast } from './dom';
 import { blankPdfBytes, fileBytes, imagesToPdfBytes, insertBytes } from '../features/documents';
 import { exportPdf, suggestedName } from '../features/save';
 import { Check, Copy, FileDown, FilePlus, Files, RotateCcw, RotateCw, Scissors, Trash2, X } from 'lucide';
@@ -17,7 +17,6 @@ export function openOrganizer(onClose: (focusIndex: number) => void, startIndex 
   const selected = new Set<string>();
   let anchor: string | null = null;
   const grid = h('div.org-grid');
-  const count = h('span', { style: 'color:var(--muted);font-size:13px;margin:0 8px;white-space:nowrap' });
   let io: IntersectionObserver | null = null;
 
   const needSel = (): DocPage[] | null => {
@@ -166,29 +165,42 @@ export function openOrganizer(onClose: (focusIndex: number) => void, startIndex 
     }
   };
 
+  const needsSelection: HTMLButtonElement[] = [];
+  const act = (ic: Parameters<typeof icon>[0], label: string, short: string, fn: () => void, needsSel = false) => {
+    const b = h('button.org-btn', { type: 'button', title: label, 'aria-label': label, onclick: fn }, icon(ic, 20), h('span', {}, short));
+    if (needsSel) needsSelection.push(b);
+    return b;
+  };
+  const selectAllBtn = act(Check, t('selectAll'), t('orgAll'), () => {
+    if (selected.size === store.state.pages.length) selected.clear();
+    else store.state.pages.forEach((p) => selected.add(p.id));
+    render();
+  });
   const bar = h(
     'div.org-bar',
     {},
     iconButton(X, t('close'), () => close()),
     h('span.title', {}, t('organize')),
-    count,
     h('span', { style: 'flex:1' }),
-    iconButton(Check, t('selectAll'), () => {
-      if (selected.size === store.state.pages.length) selected.clear();
-      else store.state.pages.forEach((p) => selected.add(p.id));
-      render();
-    }),
-    iconButton(RotateCcw, t('rotateLeft'), () => rotate(-90)),
-    iconButton(RotateCw, t('rotateRight'), () => rotate(90)),
-    iconButton(Copy, t('duplicate'), duplicate),
-    iconButton(Trash2, t('delete'), remove),
-    iconButton(FilePlus, t('insertBlank'), () => void insertBlank()),
-    iconButton(Files, t('insertFile'), () => void insertFile()),
-    iconButton(FileDown, t('extract'), () => void extractSelected()),
-    iconButton(Scissors, t('splitAll'), () => void splitAll()),
-    h('button.btn.btn-primary.btn-small', { type: 'button', onclick: () => close(), style: 'margin-left:6px' }, t('done')),
+    h('button.btn.btn-primary.btn-small', { type: 'button', onclick: () => close() }, t('done')),
   );
-  const root = h('div#organizer', {}, bar, h('div.org-hint', {}, t('dragToReorder')), grid);
+  const actions = h(
+    'div.org-actions',
+    { role: 'toolbar' },
+    selectAllBtn,
+    h('div.sep'),
+    act(RotateCcw, t('rotateLeft'), t('orgLeft'), () => rotate(-90), true),
+    act(RotateCw, t('rotateRight'), t('orgRight'), () => rotate(90), true),
+    act(Copy, t('duplicate'), t('orgCopy'), duplicate, true),
+    act(Trash2, t('delete'), t('orgDelete'), remove, true),
+    act(FileDown, t('extract'), t('orgExtract'), () => void extractSelected(), true),
+    h('div.sep'),
+    act(FilePlus, t('insertBlank'), t('orgBlank'), () => void insertBlank()),
+    act(Files, t('insertFile'), t('orgFromFile'), () => void insertFile()),
+    act(Scissors, t('splitAll'), t('orgSplit'), () => void splitAll()),
+  );
+  const hint = h('div.org-hint');
+  const root = h('div#organizer', { role: 'dialog', 'aria-label': t('organize') }, bar, actions, hint, grid);
   document.body.append(root);
 
   const tiles = new Map<string, HTMLElement>();
@@ -196,7 +208,9 @@ export function openOrganizer(onClose: (focusIndex: number) => void, startIndex 
   function render(): void {
     io?.disconnect();
     for (const id of [...selected]) if (!store.page(id)) selected.delete(id);
-    count.textContent = selected.size ? t('selectedN', { n: selected.size }) : '';
+    hint.replaceChildren(selected.size ? h('b', {}, t('selectedN', { n: selected.size })) : '', selected.size ? ' · ' : '', t('dragToReorder'), selected.size ? '' : ` ${t('noneSelectedHint')}`);
+    for (const b of needsSelection) b.disabled = !selected.size;
+    selectAllBtn.classList.toggle('active', selected.size === store.state.pages.length && selected.size > 0);
     const pages = store.state.pages;
     const els = pages.map((p, i) => {
       let tile = tiles.get(p.id);
@@ -274,7 +288,7 @@ export function openOrganizer(onClose: (focusIndex: number) => void, startIndex 
         selected.add(id);
         // Only update classes: re-inserting the tile would drop its pointer capture.
         for (const [tid, el] of tiles) el.classList.toggle('selected', selected.has(tid));
-        count.textContent = t('selectedN', { n: selected.size });
+        for (const b of needsSelection) b.disabled = false;
       }
       ghost = tile.cloneNode(true) as HTMLElement;
       ghost.classList.add('drag-ghost');

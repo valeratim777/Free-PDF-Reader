@@ -3,8 +3,8 @@ import { t } from '../i18n';
 import { pageText, type PageText } from '../text';
 import type { Viewer } from '../viewer/viewer';
 import type { PageView } from '../viewer/pageView';
-import { ChevronDown, ChevronUp, X } from 'lucide';
-import { h, iconButton } from './dom';
+import { CaseSensitive, ChevronDown, ChevronUp, WholeWord, X } from 'lucide';
+import { h, icon, iconButton } from './dom';
 
 interface Match {
   pageId: string;
@@ -17,8 +17,8 @@ export class Search {
   readonly el: HTMLElement;
   private input: HTMLInputElement;
   private count: HTMLElement;
-  private caseBox: HTMLInputElement;
-  private wordBox: HTMLInputElement;
+  private matchCase = false;
+  private wholeWord = false;
   private matches: Match[] = [];
   private index = -1;
   /** Scroll to the current match once its page is painted. */
@@ -30,26 +30,31 @@ export class Search {
   constructor(private viewer: Viewer) {
     this.input = h('input', { type: 'search', placeholder: t('search'), enterkeyhint: 'search' });
     this.count = h('span.search-count');
-    this.caseBox = h('input', { type: 'checkbox' });
-    this.wordBox = h('input', { type: 'checkbox' });
+    const toggle = (ic: Parameters<typeof icon>[0], label: string, get: () => boolean, set: (v: boolean) => void) => {
+      const b = h('button.icon-btn.search-opt', { type: 'button', title: label, 'aria-label': label, 'aria-pressed': 'false' }, icon(ic, 18));
+      b.addEventListener('click', () => {
+        set(!get());
+        b.classList.toggle('active', get());
+        b.setAttribute('aria-pressed', String(get()));
+        void this.run();
+      });
+      return b;
+    };
     this.el = h(
       'div#searchbar',
       {},
       this.input,
       this.count,
-      iconButton(ChevronUp, t('prevPage'), () => this.step(-1)),
-      iconButton(ChevronDown, t('nextPage'), () => this.step(1)),
-      h('label.search-opt', {}, this.caseBox, 'Aa'),
-      h('label.search-opt', { title: t('wholeWord') }, this.wordBox, '|ab|'),
+      iconButton(ChevronUp, `${t('prevMatch')} (Shift+Enter)`, () => this.step(-1)),
+      iconButton(ChevronDown, `${t('nextMatch')} (Enter)`, () => this.step(1)),
+      toggle(CaseSensitive, t('matchCase'), () => this.matchCase, (v) => (this.matchCase = v)),
+      toggle(WholeWord, t('wholeWord'), () => this.wholeWord, (v) => (this.wholeWord = v)),
       iconButton(X, t('close'), () => this.close()),
     );
-    this.caseBox.title = t('matchCase');
     this.input.addEventListener('input', () => {
       clearTimeout(this.timer);
       this.timer = window.setTimeout(() => void this.run(), 250);
     });
-    this.caseBox.addEventListener('change', () => void this.run());
-    this.wordBox.addEventListener('change', () => void this.run());
     this.input.addEventListener('keydown', (e) => {
       e.stopPropagation();
       if (e.key === 'Enter') {
@@ -103,9 +108,9 @@ export class Search {
       this.count.textContent = '';
       return;
     }
-    const cs = this.caseBox.checked;
+    const cs = this.matchCase;
     const needle = cs ? q : q.toLowerCase();
-    const whole = this.wordBox.checked;
+    const whole = this.wholeWord;
     const isWord = (c: string | undefined) => !!c && /[\p{L}\p{N}_]/u.test(c);
     const pages = store.state.pages;
     // Start at the current page so the first hit is close to the reader.

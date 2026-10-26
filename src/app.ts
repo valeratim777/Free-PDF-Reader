@@ -1,4 +1,5 @@
 import {
+  CircleHelp,
   Combine,
   Download,
   Droplet,
@@ -32,8 +33,9 @@ import { installGestures } from './viewer/gestures';
 import { Tools, type Tool } from './annotations/tools';
 import { Sidebar } from './ui/sidebar';
 import { Search } from './ui/search';
-import { PropsBar, TopBar, ToolBar, logo } from './ui/toolbar';
-import { busy, confirmDialog, dialog, downloadBlob, h, icon, openMenu, pickFiles, toast, type MenuItem } from './ui/dom';
+import { MOD, PropsBar, TOOL_INFO, TopBar, ToolBar, logo } from './ui/toolbar';
+import { helpDialog } from './features/help';
+import { busy, confirmDialog, dialog, downloadBlob, h, icon, openMenu, pickFiles, promptDialog, toast, type MenuItem } from './ui/dom';
 import { openOrganizer } from './ui/organizer';
 import { addSource, blankPdfBytes, fileBytes, imagesToPdfBytes, insertBytes, NotPdfError, openBytes, pagesOf, registerAsset } from './features/documents';
 import { canShareFiles, download, exportPdf, save, share, suggestedName } from './features/save';
@@ -48,6 +50,10 @@ import type { PageView } from './viewer/pageView';
 
 type InstallPrompt = Event & { prompt(): Promise<void> };
 
+const TOOL_KEYS = new Map<string, Tool>(
+  (Object.entries(TOOL_INFO) as [Tool, (typeof TOOL_INFO)[Tool]][]).filter(([, i]) => i.key).map(([tool, i]) => [i.key!, tool]),
+);
+
 export class App {
   viewer!: Viewer;
   tools!: Tools;
@@ -59,6 +65,7 @@ export class App {
   private welcome!: HTMLElement;
   private badge!: HTMLElement;
   private badgeTimer = 0;
+  private dropOverlay!: HTMLElement;
   private installPrompt: InstallPrompt | null = null;
 
   constructor(private root: HTMLElement) {}
@@ -82,14 +89,17 @@ export class App {
       toggleSidebar: () => this.sidebar.toggle(),
       organize: () => this.organize(),
       chooseTool: (tool: Tool) => void this.chooseTool(tool),
+      help: () => void helpDialog(),
     };
     this.topbar = new TopBar(this.viewer, actions);
     this.toolbar = new ToolBar(this.tools, actions);
-    this.props = new PropsBar(this.tools);
-    this.badge = h('div#pageBadge');
+    this.props = new PropsBar(this.tools, actions);
+    this.badge = h('button#pageBadge', { type: 'button', title: t('goToPage'), onclick: () => void this.goToPagePrompt() });
     this.welcome = h('div#welcome');
     const viewerWrap = h('section#viewerWrap', {}, viewerEl, this.search.el, this.badge, this.welcome);
-    this.root.append(this.topbar.el, this.toolbar.el, this.props.el, h('main#main', {}, this.sidebar.el, viewerWrap));
+    const backdrop = h('div.side-backdrop', { onclick: () => this.sidebar.toggle(false) });
+    this.dropOverlay = h('div#dropOverlay', { 'aria-hidden': 'true' }, h('div.drop-card', {}, icon(FolderOpen, 40), h('span')));
+    this.root.append(this.topbar.el, this.toolbar.el, this.props.el, h('main#main', {}, this.sidebar.el, backdrop, viewerWrap), this.dropOverlay);
 
     installGestures(this.viewer, () => this.tools.tool === 'hand');
     this.tools.setTool('select');
@@ -139,7 +149,7 @@ export class App {
   private wireViewer(): void {
     this.viewer.addEventListener('pagechange', () => {
       if (!store.isOpen) return;
-      this.badge.textContent = `${this.viewer.current + 1} / ${store.state.pages.length}`;
+      this.badge.textContent = `${this.viewer.current + 1} ${t('pageOf')} ${store.state.pages.length}`;
       this.badge.classList.add('show');
       clearTimeout(this.badgeTimer);
       this.badgeTimer = window.setTimeout(() => this.badge.classList.remove('show'), 1200);
@@ -172,6 +182,12 @@ export class App {
         this.search.open();
       } else if (typing) {
         return;
+      } else if (!mod && !e.altKey && (e.key === '?' || e.key === 'F1')) {
+        e.preventDefault();
+        void helpDialog();
+      } else if (!mod && !e.altKey && store.isOpen && e.key.length === 1 && TOOL_KEYS.has(e.key.toUpperCase())) {
+        e.preventDefault();
+        void this.chooseTool(TOOL_KEYS.get(e.key.toUpperCase())!);
       } else if (mod && k === 'z') {
         e.preventDefault();
         if (e.shiftKey) store.redo();
@@ -232,6 +248,7 @@ export class App {
       if (!e.dataTransfer?.types.includes('Files')) return;
       depth++;
       document.body.classList.add('dragging');
+      this.dropOverlay.querySelector('span')!.textContent = store.isOpen ? t('dropToOpenOrInsert') : t('dropToOpen');
     });
     window.addEventListener('dragleave', () => {
       depth = Math.max(0, depth - 1);
@@ -357,6 +374,18 @@ export class App {
     }
     if (window.innerWidth > 760 && wantSidebar) this.sidebar.toggle(true);
     this.topbar.update();
+    this.firstRunTip();
+  }
+
+  /** One-time pointer to the tools and the help, shown with the first document. */
+  private firstRunTip(): void {
+    try {
+      if (localStorage.getItem('pr.tipShown')) return;
+      localStorage.setItem('pr.tipShown', '1');
+    } catch {
+      return;
+    }
+    setTimeout(() => toast(window.innerWidth <= 760 ? t('firstTipMobile') : t('firstTip'), 'info', 7000), 800);
   }
 
   /** Dropped/shared files: PDFs open (or get inserted), images become pages. */
@@ -496,6 +525,13 @@ export class App {
 
   // ---------------- navigation ----------------
 
+  private async goToPagePrompt(): Promise<void> {
+    if (!store.isOpen) return;
+    const v = await promptDialog(t('goToPage'), `${t('page')} (1–${store.state.pages.length})`, String(this.viewer.current + 1), 'number', t('goAction'));
+    const n = v ? parseInt(v, 10) : NaN;
+    if (Number.isFinite(n)) this.viewer.scrollToPage(n - 1);
+  }
+
   async goToDest(dest: unknown, srcId: string | null): Promise<void> {
     if (!srcId) return;
     const src = store.sources.get(srcId);
@@ -559,57 +595,65 @@ export class App {
     const hasPicker = 'showSaveFilePicker' in window;
     const theme = this.theme();
     const items: MenuItem[] = [
-      { label: t('openPdf'), icon: FolderOpen, action: () => void this.openDialog() },
-      { label: t('createBlank'), icon: FilePlus, action: () => void this.newBlank() },
-      { label: t('imagesToPdf'), icon: Images, action: () => void this.imagesToPdf() },
-      { label: t('mergePdfs'), icon: Combine, action: () => void this.mergePdfs() },
+      { section: t('secFile'), label: t('openPdf'), icon: FolderOpen, hint: `${MOD}O`, action: () => void this.openDialog() },
     ];
     if (open) {
       items.push(
-        { label: t('save'), icon: Save, action: () => void save(), separatorBefore: true },
-        ...(hasPicker ? [{ label: t('saveAs'), icon: Save, action: () => void save(true) }] : []),
+        { label: t('save'), icon: Save, hint: `${MOD}S`, action: () => void save() },
+        ...(hasPicker ? [{ label: t('saveAs'), icon: Save, hint: `${MOD}Shift+S`, action: () => void save(true) }] : []),
         { label: t('download'), icon: Download, action: () => void download() },
         ...(canShareFiles() ? [{ label: t('share'), icon: Share2, action: () => void share() }] : []),
-        { label: t('print'), icon: Printer, action: () => void printDocument() },
-        { label: t('organize'), icon: LayoutGrid, action: () => this.organize(), separatorBefore: true },
+        { label: t('print'), icon: Printer, hint: `${MOD}P`, action: () => void printDocument() },
+      );
+    }
+    items.push(
+      { label: t('createBlank'), icon: FilePlus, action: () => void this.newBlank() },
+      { label: t('imagesToPdf'), icon: Images, action: () => void this.imagesToPdf() },
+      { label: t('mergePdfs'), icon: Combine, action: () => void this.mergePdfs() },
+    );
+    if (open) {
+      items.push(
+        { label: t('closeDoc'), icon: X, action: () => void this.closeDocument() },
+        { section: t('secDocument'), label: t('organize'), icon: LayoutGrid, action: () => this.organize() },
         {
-          label: t('rotateRight'),
+          label: t('rotatePage'),
           icon: RotateCw,
           action: () => {
-            const p = store.state.pages[this.viewer.current];
-            if (p) store.commit('pages', (s) => (s.pages[this.viewer.current] = { ...p, rot: ((p.rot + 90) % 360) as typeof p.rot }));
+            const i = this.viewer.current;
+            const p = store.state.pages[i];
+            if (p) store.commit('pages', (s) => (s.pages[i] = { ...p, rot: ((p.rot + 90) % 360) as typeof p.rot }));
           },
         },
         { label: t('insertFile'), icon: FileStack, action: () => void this.insertFromFile() },
-        { label: t('properties'), icon: Info, action: () => void propertiesDialog(this.viewer.current), separatorBefore: true },
+        { label: t('properties'), icon: Info, action: () => void propertiesDialog(this.viewer.current) },
         { label: t('protect'), icon: Lock, action: () => void protectDialog(), checked: !!store.protection },
         { label: t('watermark'), icon: Droplet, action: () => void watermarkDialog(), checked: !!store.state.watermark },
         { label: t('pageNumbers'), icon: Hash, action: () => void numberingDialog(), checked: !!store.state.numbering },
-        { label: t('flattenForms'), icon: FileText, action: () => void this.saveFlattened() },
+        { label: t('downloadFlattened'), icon: FileText, action: () => void this.saveFlattened() },
         { label: t('exportImages'), icon: FileImage, action: () => void exportImagesDialog(this.viewer.current) },
         { label: t('exportText'), icon: FileText, action: () => void exportText() },
-        { label: t('readAloud'), icon: Volume2, action: () => readAloud(this.viewer, this.viewer.scroller.parentElement!), separatorBefore: true },
+        { section: t('secView'), label: t('readAloud'), icon: Volume2, action: () => readAloud(this.viewer, this.viewer.scroller.parentElement!) },
         { label: t('presentation'), icon: Maximize2, action: () => this.togglePresentation(true) },
         { label: t('nightMode'), icon: Moon, action: () => this.toggleNight(), checked: document.body.classList.contains('night') },
       );
     }
     items.push(
       {
+        section: open ? undefined : t('secView'),
         label: `${t('theme')}: ${t(theme === 'dark' ? 'themeDark' : theme === 'light' ? 'themeLight' : 'themeAuto')}`,
         icon: SunMoon,
         action: () => this.cycleTheme(),
-        separatorBefore: true,
       },
       {
         label: `${t('language')}: ${LANGS.find((l) => l.code === getLang())?.name}`,
         icon: Languages,
         action: () => void this.switchLanguage(),
       },
+      { section: t('secHelp'), label: t('help'), icon: CircleHelp, hint: '?', action: () => void helpDialog() },
       { label: t('authorName'), icon: User, action: () => void authorDialog() },
     );
     if (this.installPrompt) items.push({ label: t('installApp'), icon: MonitorDown, action: () => void this.install() });
     items.push({ label: t('about'), icon: Info, action: () => void aboutDialog() });
-    if (open) items.push({ label: t('closeDoc'), icon: X, action: () => void this.closeDocument(), separatorBefore: true });
     openMenu(anchor, items);
   }
 
@@ -720,6 +764,7 @@ export class App {
           quick(Combine, t('mergePdfs'), () => void this.mergePdfs()),
         ),
         session ? h('button.btn.restore-btn', { type: 'button', onclick: () => void this.restore() }, t('restoreSession', { name: session.fileName })) : null,
+        h('button.link-btn', { type: 'button', onclick: () => void helpDialog() }, icon(CircleHelp, 16), t('helpTitle')),
         this.installPrompt ? h('button.btn.restore-btn', { type: 'button', onclick: () => void this.install() }, icon(MonitorDown), t('installApp')) : null,
       ),
     );

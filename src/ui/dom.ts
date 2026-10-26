@@ -153,14 +153,14 @@ export async function confirmDialog(message: string, okLabel = t('ok'), danger =
   return !!r;
 }
 
-export async function promptDialog(title: string, label: string, value = '', type = 'text'): Promise<string | null> {
+export async function promptDialog(title: string, label: string, value = '', type = 'text', okLabel = t('ok')): Promise<string | null> {
   const input = h('input', { type, value, class: 'input', autocomplete: type === 'password' ? 'current-password' : 'off' });
   const r = await dialog<string | null>({
     title,
     body: h('label.field', {}, h('span', {}, label), input),
     actions: [
       { label: t('cancel'), value: null },
-      { label: t('ok'), value: () => input.value, primary: true },
+      { label: okLabel, value: () => input.value, primary: true },
     ],
     dismissValue: null,
   });
@@ -186,22 +186,31 @@ export interface MenuItem {
   checked?: boolean;
   disabled?: boolean;
   separatorBefore?: boolean;
+  /** Starts a titled section. */
+  section?: string;
+  /** Right-aligned secondary text, e.g. a keyboard shortcut. */
+  hint?: string;
 }
 
 export function openMenu(anchor: HTMLElement, items: MenuItem[]): void {
   document.querySelector('.menu')?.remove();
   const menu = h('div.menu', { role: 'menu' });
-  for (const it of items) {
-    if (it.separatorBefore) menu.append(h('div.menu-sep'));
-    const b = h('button.menu-item', { type: 'button', role: 'menuitem', disabled: !!it.disabled });
-    b.append(it.icon ? icon(it.icon, 18) : h('span.menu-icon-pad'), h('span', {}, it.label));
+  items.forEach((it, i) => {
+    if (it.section) {
+      if (i > 0) menu.append(h('div.menu-sep'));
+      menu.append(h('div.menu-section', { role: 'presentation' }, it.section));
+    } else if (it.separatorBefore) menu.append(h('div.menu-sep'));
+    const b = h('button.menu-item', { type: 'button', role: it.checked !== undefined ? 'menuitemcheckbox' : 'menuitem', disabled: !!it.disabled });
+    if (it.checked !== undefined) b.setAttribute('aria-checked', String(it.checked));
+    b.append(it.icon ? icon(it.icon, 18) : h('span.menu-icon-pad'), h('span.menu-label', {}, it.label));
+    if (it.hint) b.append(h('span.menu-hint', {}, it.hint));
     if (it.checked) b.append(h('span.menu-check', {}, '✓'));
     b.addEventListener('click', () => {
       cleanup();
       it.action();
     });
     menu.append(b);
-  }
+  });
   document.body.append(menu);
   const r = anchor.getBoundingClientRect();
   const mw = menu.offsetWidth;
@@ -215,7 +224,18 @@ export function openMenu(anchor: HTMLElement, items: MenuItem[]): void {
   const onDown = (e: Event) => {
     if (!menu.contains(e.target as Node)) cleanup();
   };
-  const onKey = (e: KeyboardEvent) => e.key === 'Escape' && cleanup();
+  const onKey = (e: KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      e.stopPropagation();
+      cleanup();
+      anchor.focus();
+    } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      const list = Array.from(menu.querySelectorAll<HTMLButtonElement>('.menu-item:not(:disabled)'));
+      const i = list.indexOf(document.activeElement as HTMLButtonElement);
+      list[(i + (e.key === 'ArrowDown' ? 1 : -1) + list.length) % list.length]?.focus();
+    }
+  };
   const cleanup = () => {
     menu.remove();
     document.removeEventListener('pointerdown', onDown, true);

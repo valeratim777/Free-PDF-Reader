@@ -11,7 +11,7 @@ import { t } from '../i18n';
 export class NotPdfError extends Error {}
 
 async function askPassword(retry: boolean): Promise<string | null> {
-  return promptDialog(t('passwordRequired'), retry ? t('passwordWrong') : t('enterPassword'), '', 'password');
+  return promptDialog(t('passwordRequired'), retry ? t('passwordWrong') : t('enterPassword'), '', 'password', t('openAction'));
 }
 
 export function looksLikePdf(bytes: Uint8Array): boolean {
