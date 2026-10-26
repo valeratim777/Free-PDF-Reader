@@ -1,0 +1,8 @@
+{
+  "appId": "io.github.valeratim777.pdfreader",
+  "appName": "PDF Reader",
+  "webDir": "dist",
+  "android": {
+    "backgroundColor": "#f3f4f6"
+  }
+}

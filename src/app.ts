@@ -35,6 +35,7 @@ import { Sidebar } from './ui/sidebar';
 import { Search } from './ui/search';
 import { MOD, PropsBar, TOOL_INFO, TopBar, ToolBar, logo } from './ui/toolbar';
 import { helpDialog } from './features/help';
+import { listenForSystemFiles } from './features/native';
 import { busy, confirmDialog, dialog, downloadBlob, h, icon, openMenu, pickFiles, promptDialog, toast, type MenuItem } from './ui/dom';
 import { openOrganizer } from './ui/organizer';
 import { addSource, blankPdfBytes, fileBytes, imagesToPdfBytes, insertBytes, NotPdfError, openBytes, pagesOf, registerAsset } from './features/documents';
@@ -290,6 +291,7 @@ export class App {
 
   /** Files passed by the OS ("Open with…") or shared from another app. */
   private async handleLaunch(): Promise<void> {
+    void listenForSystemFiles((file) => void this.handleFiles([file])).catch((e) => console.warn('system files', e));
     const lq = (window as unknown as { launchQueue?: { setConsumer(cb: (p: { files: FileSystemFileHandle[] }) => void): void } }).launchQueue;
     lq?.setConsumer(async (params) => {
       if (!params.files?.length) return;

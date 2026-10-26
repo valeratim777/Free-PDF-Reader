@@ -1,7 +1,8 @@
 // Printing, exporting pages as images or text, and reading aloud.
 import { zipSync } from 'fflate';
 import { store } from '../store';
-import { exportPdf, loadExported, suggestedName } from './save';
+import { exportPdf, loadExported, share, suggestedName } from './save';
+import { isNativeApp } from './native';
 import { pageText } from '../text';
 import { busy, dialog, downloadBlob, field, h, icon, iconButton, select, toast } from '../ui/dom';
 import { t } from '../i18n';
@@ -34,6 +35,11 @@ async function renderPages(bytes: Uint8Array, pages: number[], dpi: number, mime
 
 export async function printDocument(): Promise<void> {
   if (!store.isOpen) return;
+  // Android's WebView has no print dialog; the share sheet offers "Print" instead.
+  if (isNativeApp()) {
+    toast(t('printViaShare'));
+    return share();
+  }
   busy(true, t('loading'));
   const root = document.getElementById('print-root')!;
   const urls: string[] = [];

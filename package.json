@@ -10,20 +10,39 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "desktop": "npm run build && electron .",
+    "dist:win": "npm run build && electron-builder --win --x64",
+    "dist:linux": "npm run build && electron-builder --linux",
+    "android": "npm run build && cap sync android",
+    "apk": "npm run android && cd android && ./gradlew assembleDebug"
   },
   "dependencies": {
     "@cantoo/fontkit": "^2.0.12",
     "@cantoo/pdf-lib": "^2.11.1",
+    "@capacitor/android": "^8.5.3",
+    "@capacitor/app": "^8.1.2",
+    "@capacitor/core": "^8.5.3",
+    "@capacitor/filesystem": "^8.1.5",
+    "@capacitor/share": "^8.0.3",
     "fflate": "^0.8.3",
     "lucide": "^1.61.0",
     "pdfjs-dist": "^6.4.299"
   },
   "devDependencies": {
+    "@capacitor/assets": "^3.0.5",
+    "@capacitor/cli": "^8.5.3",
     "dejavu-fonts-ttf": "^2.37.3",
+    "electron": "^45.0.0",
+    "electron-builder": "^26.18.0",
     "typescript": "^5.9.3",
     "vite": "^7.3.7",
     "vitest": "^5.0.5"
   },
-  "description": "Cross-platform PDF reader and editor (PWA) for desktop and mobile"
+  "description": "Cross-platform PDF reader and editor (PWA) for desktop and mobile",
+  "main": "electron/main.cjs",
+  "author": {
+    "name": "valeratim777"
+  },
+  "homepage": "https://github.com/valeratim777/Free-PDF-Reader"
 }

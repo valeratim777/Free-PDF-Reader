@@ -249,6 +249,14 @@ export function openMenu(anchor: HTMLElement, items: MenuItem[]): void {
 }
 
 export function downloadBlob(blob: Blob, name: string): void {
+  // Inside the Android app there is no download manager: write to Documents instead.
+  if ((window as unknown as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor?.isNativePlatform?.()) {
+    void import('../features/native')
+      .then((m) => m.nativeSave(blob, name))
+      .then((path) => path && toast(t('savedTo', { path }), 'success', 5000))
+      .catch((e) => toast(String((e as Error)?.message ?? e), 'error'));
+    return;
+  }
   const url = URL.createObjectURL(blob);
   const a = h('a', { href: url, download: name, style: 'display:none' });
   document.body.append(a);

@@ -5,3 +5,7 @@ public/pdfjs/
 public/fonts/
 *.log
 .DS_Store
+# desktop / android build output
+release/
+android/app/build/
+android/.gradle/
