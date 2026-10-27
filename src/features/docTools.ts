@@ -4,6 +4,7 @@ import type { NumberPosition } from '../model';
 import { pageInfo } from '../pages';
 import { dialog, field, h, select, toast } from '../ui/dom';
 import { t } from '../i18n';
+import { APP_VERSION } from './update';
 
 function input(value: string | number, type = 'text', extra: Record<string, string | number> = {}): HTMLInputElement {
   return h('input.input', { type, value: String(value), ...extra });
@@ -218,7 +219,8 @@ export async function aboutDialog(): Promise<void> {
     body: h(
       'div',
       {},
-      h('p', { style: 'margin-top:0' }, t('aboutText')),
+      h('p', { style: 'margin-top:0' }, h('b', {}, `${t('appName')} · ${t('version', { v: APP_VERSION })}`)),
+      h('p', {}, t('aboutText')),
       h('h3', { style: 'font-size:14px;margin-bottom:4px' }, t('licenses')),
       h(
         'ul',

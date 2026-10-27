@@ -1,5 +1,6 @@
 import {
   CircleHelp,
+  Clock,
   Combine,
   Download,
   Droplet,
@@ -16,21 +17,25 @@ import {
   Moon,
   MonitorDown,
   Printer,
+  RefreshCw,
   RotateCw,
   Save,
   Share2,
+  Shrink,
   SunMoon,
   User,
   Volume2,
   X,
   FolderOpen,
   FileStack,
+  FileText as FileIcon,
+  Trash2,
 } from 'lucide';
 import { store } from './store';
-import { getLang, LANGS, setLang, t } from './i18n';
+import { getLang, langSetting, LANGS, setLang, t } from './i18n';
 import { Viewer } from './viewer/viewer';
 import { installGestures } from './viewer/gestures';
-import { Tools, type Tool } from './annotations/tools';
+import { Tools, type SnapshotRequest, type Tool } from './annotations/tools';
 import { Sidebar } from './ui/sidebar';
 import { Search } from './ui/search';
 import { MOD, PropsBar, TOOL_INFO, TopBar, ToolBar, logo } from './ui/toolbar';
@@ -44,6 +49,10 @@ import { exportImagesDialog, exportText, printDocument, readAloud } from './feat
 import { aboutDialog, authorDialog, numberingDialog, propertiesDialog, protectDialog, watermarkDialog } from './features/docTools';
 import { insertImage, signatureFlow, stampFlow } from './features/insert';
 import { clearSession, flushSession, loadSession, markRestored, peekSession, scheduleSessionSave, startSession } from './features/session';
+import { clearRecent, forgetCurrent, listRecent, notePage, recentBytes, rememberOpened, removeRecent, resumeEntry, type RecentFile } from './features/recent';
+import { takeSnapshot } from './features/snapshot';
+import { compressDialog } from './features/compress';
+import { checkForUpdates, isInstalledApp } from './features/update';
 import { clearPages } from './pages';
 import { clearText } from './text';
 import { clearThumbs } from './ui/thumbs';
@@ -104,6 +113,12 @@ export class App {
 
     installGestures(this.viewer, () => this.tools.tool === 'hand');
     this.tools.setTool('select');
+    this.tools.addEventListener('snapshot', (e) => {
+      const { pageId, rect } = (e as CustomEvent<SnapshotRequest>).detail;
+      this.tools.setTool('select');
+      void takeSnapshot(pageId, rect);
+    });
+    setTimeout(() => void checkForUpdates(), 4000);
     this.wireStore();
     this.wireViewer();
     this.wireKeyboard();
@@ -150,6 +165,7 @@ export class App {
   private wireViewer(): void {
     this.viewer.addEventListener('pagechange', () => {
       if (!store.isOpen) return;
+      notePage(this.viewer.current);
       this.badge.textContent = `${this.viewer.current + 1} ${t('pageOf')} ${store.state.pages.length}`;
       this.badge.classList.add('show');
       clearTimeout(this.badgeTimer);
@@ -348,10 +364,12 @@ export class App {
     busy(true);
     try {
       if (file.size > 150 * 1024 * 1024) toast(t('fileTooLarge'));
-      const ok = await openBytes(await fileBytes(file), file.name, handle);
+      const bytes = await fileBytes(file);
+      const ok = await openBytes(bytes, file.name, handle);
       if (ok) {
         this.afterOpen();
         await startSession();
+        this.resumeAt(await rememberOpened(bytes, file.name));
       }
     } catch (e) {
       this.reportOpenError(e);
@@ -364,6 +382,13 @@ export class App {
     console.error(e);
     const msg = e instanceof NotPdfError ? (e as Error).message : t('errorOpen', { msg: (e as Error)?.message ?? String(e) });
     toast(msg, 'error', 6000);
+  }
+
+  /** Continues where the reader stopped last time with this file. */
+  private resumeAt(page: number): void {
+    if (page <= 0 || page >= store.state.pages.length) return;
+    this.viewer.scrollToPage(page);
+    toast(t('resumedAt', { n: page + 1 }));
   }
 
   private afterOpen(): void {
@@ -426,11 +451,14 @@ export class App {
         return;
       }
       const [first, ...rest] = pdfs;
+      let single: Uint8Array | null = null;
       if (first) {
-        const ok = await openBytes(await fileBytes(first), first.name);
+        const bytes = await fileBytes(first);
+        const ok = await openBytes(bytes, first.name);
         if (!ok) return;
         for (const f of rest) await this.appendQuiet(await fileBytes(f), f.name);
         if (images.length) await this.appendQuiet(await imagesToPdfBytes(images), 'images.pdf');
+        if (!rest.length && !images.length) single = bytes;
       } else {
         const ok = await openBytes(await imagesToPdfBytes(images), images.length === 1 ? images[0].name.replace(/\.[^.]+$/, '.pdf') : 'images.pdf');
         if (!ok) return;
@@ -438,6 +466,8 @@ export class App {
       }
       this.afterOpen();
       await startSession();
+      if (single) this.resumeAt(await rememberOpened(single, first.name));
+      else forgetCurrent();
     } catch (e) {
       this.reportOpenError(e);
     } finally {
@@ -459,6 +489,7 @@ export class App {
     busy(true);
     try {
       if (await openBytes(await blankPdfBytes(), t('untitled'))) {
+        forgetCurrent();
         store.dirty = true;
         this.afterOpen();
         await startSession();
@@ -509,6 +540,7 @@ export class App {
       );
       store.emit({ kind: 'all' });
       this.afterOpen();
+      await resumeEntry(s.fileName);
     } catch (e) {
       this.reportOpenError(e);
     } finally {
@@ -516,10 +548,98 @@ export class App {
     }
   }
 
+  async openRecent(r: RecentFile): Promise<void> {
+    if (!(await this.confirmDiscard())) return;
+    const bytes = await recentBytes(r.id);
+    if (!bytes) {
+      await removeRecent(r.id);
+      toast(t('recentMissing'), 'error');
+      void this.renderWelcome();
+      return;
+    }
+    busy(true);
+    try {
+      if (await openBytes(bytes, r.name)) {
+        this.afterOpen();
+        await startSession();
+        this.resumeAt(await rememberOpened(bytes, r.name));
+      }
+    } catch (e) {
+      this.reportOpenError(e);
+    } finally {
+      busy(false);
+    }
+  }
+
+  /** Rows for the recent files list (start screen and the menu dialog). */
+  private recentList(list: RecentFile[], onPick: (r: RecentFile) => void, onChange: () => void): HTMLElement {
+    const fmtDate = (ms: number) => new Date(ms).toLocaleDateString(getLang(), { day: 'numeric', month: 'short' });
+    return h(
+      'div.recent-list',
+      {},
+      ...list.map((r) =>
+        h(
+          'div.recent-item',
+          {},
+          h(
+            'button.recent-open',
+            { type: 'button', title: r.name, onclick: () => onPick(r) },
+            r.thumb ? h('img.recent-thumb', { src: r.thumb, alt: '' }) : h('span.recent-thumb', {}, icon(FileIcon, 22)),
+            h(
+              'span.recent-text',
+              {},
+              h('span.recent-name', {}, r.name),
+              h('span.recent-meta', {}, `${t('page')} ${Math.min(r.page + 1, r.pages)} ${t('pageOf')} ${r.pages} · ${fmtDate(r.openedAt)}`),
+            ),
+          ),
+          h(
+            'button.icon-btn.recent-remove',
+            {
+              type: 'button',
+              title: t('recentRemove'),
+              'aria-label': t('recentRemove'),
+              onclick: async () => {
+                await removeRecent(r.id);
+                onChange();
+              },
+            },
+            icon(X, 16),
+          ),
+        ),
+      ),
+    );
+  }
+
+  private async recentDialog(): Promise<void> {
+    const list = await listRecent();
+    if (!list.length) {
+      toast(t('recentEmpty'));
+      return;
+    }
+    let close: (() => void) | null = null;
+    const body = h('div');
+    const fill = async () => {
+      const l = await listRecent();
+      body.replaceChildren(l.length ? this.recentList(l, pick, () => void fill()) : h('p', {}, t('recentEmpty')));
+    };
+    const pick = (r: RecentFile) => {
+      close?.();
+      void this.openRecent(r);
+    };
+    await fill();
+    await dialog<boolean>({
+      title: t('recentFiles'),
+      body,
+      onOpen: (box) => (close = () => box.querySelector<HTMLButtonElement>('.modal-header .icon-btn')?.click()),
+      actions: [{ label: t('close'), value: true }],
+    });
+  }
+
   async closeDocument(): Promise<void> {
     if (!(await this.confirmDiscard())) return;
     this.search.close();
     this.tools.setTool('select');
+    forgetCurrent();
     store.reset();
     clearPages();
     clearText();
@@ -613,6 +733,7 @@ export class App {
       );
     }
     items.push(
+      { label: t('recentFiles'), icon: Clock, action: () => void this.recentDialog() },
       { label: t('createBlank'), icon: FilePlus, action: () => void this.newBlank() },
       { label: t('imagesToPdf'), icon: Images, action: () => void this.imagesToPdf() },
       { label: t('mergePdfs'), icon: Combine, action: () => void this.mergePdfs() },
@@ -635,6 +756,7 @@ export class App {
         { label: t('protect'), icon: Lock, action: () => void protectDialog(), checked: !!store.protection },
         { label: t('watermark'), icon: Droplet, action: () => void watermarkDialog(), checked: !!store.state.watermark },
         { label: t('pageNumbers'), icon: Hash, action: () => void numberingDialog(), checked: !!store.state.numbering },
+        { label: t('compressTitle'), icon: Shrink, action: () => void compressDialog() },
         { label: t('downloadFlattened'), icon: FileText, action: () => void this.saveFlattened() },
         { label: t('exportImages'), icon: FileImage, action: () => void exportImagesDialog(this.viewer.current) },
         { label: t('exportText'), icon: FileText, action: () => void exportText() },
@@ -651,7 +773,9 @@ export class App {
         action: () => this.cycleTheme(),
       },
       {
-        label: `${t('language')}: ${LANGS.find((l) => l.code === getLang())?.name}`,
+        label: `${t('language')}: ${
+          langSetting() === 'auto' ? `${t('langAuto')} (${LANGS.find((l) => l.code === getLang())?.name})` : LANGS.find((l) => l.code === getLang())?.name
+        }`,
         icon: Languages,
         action: () => void this.switchLanguage(),
       },
@@ -659,6 +783,7 @@ export class App {
       { label: t('authorName'), icon: User, action: () => void authorDialog() },
     );
     if (this.installPrompt) items.push({ label: t('installApp'), icon: MonitorDown, action: () => void this.install() });
+    if (isInstalledApp()) items.push({ label: t('checkUpdates'), icon: RefreshCw, action: () => void checkForUpdates(true) });
     items.push({ label: t('about'), icon: Info, action: () => void aboutDialog() });
     openMenu(anchor, items);
   }
@@ -730,9 +855,15 @@ export class App {
     this.applyTheme();
   }
 
+  /** Cycles "as on the device" → each language → back to "as on the device". */
   private async switchLanguage(): Promise<void> {
-    const i = LANGS.findIndex((l) => l.code === getLang());
-    setLang(LANGS[(i + 1) % LANGS.length].code);
+    const order = ['auto', ...LANGS.map((l) => l.code)];
+    const before = getLang();
+    setLang(order[(order.indexOf(langSetting()) + 1) % order.length]);
+    if (getLang() === before) {
+      toast(`${t('language')}: ${langSetting() === 'auto' ? t('langAuto') : LANGS.find((l) => l.code === before)?.name}`);
+      return;
+    }
     // Reload in the new language; the open document comes back from the session store.
     if (store.isOpen) {
       await flushSession();
@@ -751,6 +882,7 @@ export class App {
   private async renderWelcome(): Promise<void> {
     if (store.isOpen) return;
     const session = await peekSession();
+    const recent = await listRecent();
     if (store.isOpen) return;
     const openBtn = h('button.btn.btn-primary.btn-big', { type: 'button', onclick: () => void this.openDialog() }, icon(FolderOpen), t('openPdf'));
     const quick = (ic: Parameters<typeof icon>[0], label: string, fn: () => void) => h('button', { type: 'button', onclick: fn }, icon(ic, 24), h('span', {}, label));
@@ -770,6 +902,31 @@ export class App {
           quick(Combine, t('mergePdfs'), () => void this.mergePdfs()),
         ),
         session ? h('button.btn.restore-btn', { type: 'button', onclick: () => void this.restore() }, t('restoreSession', { name: session.fileName })) : null,
+        recent.length
+          ? h(
+              'section.recent',
+              {},
+              h(
+                'div.recent-head',
+                {},
+                h('h2', {}, t('recentFiles')),
+                h(
+                  'button.link-btn',
+                  {
+                    type: 'button',
+                    onclick: async () => {
+                      if (!(await confirmDialog(t('recentClearAsk'), t('recentClear'), true))) return;
+                      await clearRecent();
+                      void this.renderWelcome();
+                    },
+                  },
+                  icon(Trash2, 14),
+                  t('recentClear'),
+                ),
+              ),
+              this.recentList(recent, (r) => void this.openRecent(r), () => void this.renderWelcome()),
+            )
+          : null,
         h('button.link-btn', { type: 'button', onclick: () => void helpDialog() }, icon(CircleHelp, 16), t('helpTitle')),
         this.installPrompt ? h('button.btn.restore-btn', { type: 'button', onclick: () => void this.install() }, icon(MonitorDown), t('installApp')) : null,
       ),

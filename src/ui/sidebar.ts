@@ -6,7 +6,8 @@ import type { Viewer } from '../viewer/viewer';
 import type { Tools } from '../annotations/tools';
 import { annBBox } from '../geometry';
 import { drawThumb } from './thumbs';
-import { h } from './dom';
+import { h, icon } from './dom';
+import { Trash2 } from 'lucide';
 
 type Tab = 'thumbs' | 'outline' | 'comments';
 
@@ -205,6 +206,20 @@ export class Sidebar {
             h('span.ci-dot', { style: `background:${a.type === 'redact' ? '#000' : a.color}` }),
             h('span', {}, t(TYPE_LABEL[a.type])),
             h('span', { style: 'margin-left:auto' }, t('commentOnPage', { n: order.get(a.pageId)! + 1 })),
+            h(
+              'button.icon-btn.ci-delete',
+              {
+                type: 'button',
+                title: t('delete'),
+                'aria-label': t('delete'),
+                onclick: (e: Event) => {
+                  e.stopPropagation();
+                  if (this.tools.selected === a.id) this.tools.select(null);
+                  store.removeAnns([a.id]);
+                },
+              },
+              icon(Trash2, 16),
+            ),
           ),
           a.author ? h('div.ci-head', {}, a.author) : null,
           text ? h('div.ci-text', {}, text) : null,

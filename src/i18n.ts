@@ -252,8 +252,8 @@ const en = {
   nextMatch: 'Next match',
   // hints shown while a tool is active
   hintHand: 'Drag the page to scroll.',
-  hintMarkup: 'Select text with the mouse or finger. On scans, drag over the area.',
-  hintMarkupText: 'Select text with the mouse or finger.',
+  hintMarkup: 'Select text with the mouse or finger. On scans, drag over the area. Tap a mark to recolor or remove it.',
+  hintMarkupText: 'Select text with the mouse or finger. Tap a mark to recolor or remove it.',
   hintText: 'Tap the page where the text should go.',
   hintNote: 'Tap the page to leave a comment.',
   hintDraw: 'Draw on the page.',
@@ -315,6 +315,56 @@ const en = {
   selectedMark: 'Selected',
   openAction: 'Open',
   noneSelectedHint: 'Select pages to rotate, delete or extract them.',
+  removeHighlight: 'Remove highlight',
+  removeMark: 'Remove',
+  searchResults: 'List of results',
+  searchSummary: '{n} matches on {p} pages',
+  searching: 'Searching…',
+  searchMore: 'and {n} more — use the arrows to go through them',
+  langAuto: 'As on the device',
+  resumedAt: 'Continuing from page {n}',
+  recentFiles: 'Recent files',
+  recentEmpty: 'No recent files yet.',
+  recentRemove: 'Remove from the list',
+  recentMissing: 'This file is no longer stored on the device.',
+  recentClear: 'Clear',
+  recentClearAsk: 'Clear the list of recent files? The copies kept by the app are deleted; your original files are not affected.',
+  compressTitle: 'Reduce file size',
+  compressInfo:
+    'Pages are saved as compressed pictures. Scans and photos shrink a lot, but text in the copy can no longer be selected or searched. Your document stays as it is.',
+  compressLevel: 'Compression',
+  compressStrong: 'Strong — smallest file',
+  compressMedium: 'Medium — recommended',
+  compressLight: 'Light — best quality',
+  compressRun: 'Compress',
+  compressing: 'Compressing…',
+  compressNoGain: 'The file ({size}) is already compact; compressing would not make it smaller.',
+  compressNoPassword: 'The compressed copy is saved without a password.',
+  saveCopy: 'Save copy',
+  unitMB: 'MB',
+  unitKB: 'KB',
+  checkUpdates: 'Check for updates',
+  updateAvailable: 'Version {v} is available',
+  updateDownload: 'Download',
+  updateCheckFailed: 'Could not check for updates. Check the internet connection.',
+  upToDate: 'You have the latest version ({v}).',
+  version: 'Version {v}',
+  toolSnapshot: 'Snapshot of an area',
+  shortSnapshot: 'Snapshot',
+  descSnapshot: 'Drag over part of a page to copy, save or send it as a picture.',
+  hintSnapshot: 'Drag over the area you want as a picture.',
+  snapshotCopied: 'Picture copied — paste it anywhere',
+  snapshotCopyFailed: 'Copying pictures is not available here — use Save or Share.',
+  copyImage: 'Copy',
+  saveImage: 'Save picture',
+  toolCheck: 'Check mark ✔',
+  toolCross: 'Cross ✘',
+  toolDate: 'Today’s date',
+  shortCheck: 'Check',
+  shortCross: 'Cross',
+  shortDate: 'Date',
+  descSymbols: 'Check marks, crosses and today’s date for filling in forms — one tap each.',
+  hintSymbol: 'Tap the page to put the mark. Tap a mark to move or delete it.',
 };
 
 export type Key = keyof typeof en;
@@ -563,8 +613,8 @@ const ru: Record<Key, string> = {
   prevMatch: 'Предыдущее совпадение',
   nextMatch: 'Следующее совпадение',
   hintHand: 'Перетаскивайте страницу, чтобы её прокручивать.',
-  hintMarkup: 'Выделите текст мышью или пальцем. На сканах — обведите область.',
-  hintMarkupText: 'Выделите текст мышью или пальцем.',
+  hintMarkup: 'Выделите текст мышью или пальцем. На сканах — обведите область. Нажмите на пометку, чтобы сменить цвет или убрать её.',
+  hintMarkupText: 'Выделите текст мышью или пальцем. Нажмите на пометку, чтобы сменить цвет или убрать её.',
   hintText: 'Нажмите на страницу там, где нужен текст.',
   hintNote: 'Нажмите на страницу, чтобы оставить заметку.',
   hintDraw: 'Рисуйте на странице.',
@@ -623,6 +673,56 @@ const ru: Record<Key, string> = {
   selectedMark: 'Выбрано',
   openAction: 'Открыть',
   noneSelectedHint: 'Выберите страницы, чтобы повернуть, удалить или извлечь их.',
+  removeHighlight: 'Убрать выделение',
+  removeMark: 'Убрать',
+  searchResults: 'Список результатов',
+  searchSummary: 'Найдено: {n} (страниц: {p})',
+  searching: 'Идёт поиск…',
+  searchMore: 'и ещё {n} — листайте стрелками',
+  langAuto: 'Как на устройстве',
+  resumedAt: 'Продолжаем со страницы {n}',
+  recentFiles: 'Недавние файлы',
+  recentEmpty: 'Недавних файлов пока нет.',
+  recentRemove: 'Убрать из списка',
+  recentMissing: 'Этот файл больше не хранится на устройстве.',
+  recentClear: 'Очистить',
+  recentClearAsk: 'Очистить список недавних файлов? Копии, которые хранит приложение, будут удалены; ваши исходные файлы не пострадают.',
+  compressTitle: 'Уменьшить размер файла',
+  compressInfo:
+    'Страницы сохраняются как сжатые картинки. Сканы и фото сильно уменьшаются, но текст в копии нельзя будет выделить или найти поиском. Ваш документ не изменится.',
+  compressLevel: 'Степень сжатия',
+  compressStrong: 'Сильное — самый маленький файл',
+  compressMedium: 'Среднее — рекомендуется',
+  compressLight: 'Лёгкое — лучшее качество',
+  compressRun: 'Сжать',
+  compressing: 'Сжатие…',
+  compressNoGain: 'Файл ({size}) уже компактный — сжатие не уменьшит его.',
+  compressNoPassword: 'Сжатая копия сохраняется без пароля.',
+  saveCopy: 'Сохранить копию',
+  unitMB: 'МБ',
+  unitKB: 'КБ',
+  checkUpdates: 'Проверить обновления',
+  updateAvailable: 'Доступна новая версия {v}',
+  updateDownload: 'Скачать',
+  updateCheckFailed: 'Не удалось проверить обновления. Проверьте подключение к интернету.',
+  upToDate: 'У вас последняя версия ({v}).',
+  version: 'Версия {v}',
+  toolSnapshot: 'Снимок области',
+  shortSnapshot: 'Снимок',
+  descSnapshot: 'Обведите часть страницы, чтобы скопировать, сохранить или отправить её как картинку.',
+  hintSnapshot: 'Обведите область, которую нужно сохранить как картинку.',
+  snapshotCopied: 'Картинка скопирована — вставьте её куда нужно',
+  snapshotCopyFailed: 'Копирование картинок здесь недоступно — используйте «Сохранить» или «Поделиться».',
+  copyImage: 'Копировать',
+  saveImage: 'Сохранить картинку',
+  toolCheck: 'Галочка ✔',
+  toolCross: 'Крестик ✘',
+  toolDate: 'Сегодняшняя дата',
+  shortCheck: 'Галочка',
+  shortCross: 'Крестик',
+  shortDate: 'Дата',
+  descSymbols: 'Галочки, крестики и сегодняшняя дата для заполнения бланков — одним нажатием.',
+  hintSymbol: 'Нажмите на страницу, чтобы поставить отметку. Нажмите на отметку, чтобы сдвинуть или удалить её.',
 };
 
 const tables: Record<string, Record<Key, string>> = { en, ru };
@@ -631,28 +731,43 @@ export const LANGS: { code: string; name: string }[] = [
   { code: 'en', name: 'English' },
 ];
 
-function initialLang(): string {
-  try {
-    const saved = localStorage.getItem('pr.lang');
-    if (saved && tables[saved]) return saved;
-  } catch {
-    /* storage unavailable */
+/** The first of the device's preferred languages that the app speaks; English otherwise. */
+function deviceLang(): string {
+  const prefs = navigator.languages?.length ? navigator.languages : [navigator.language || 'en'];
+  for (const l of prefs) {
+    const code = l.slice(0, 2).toLowerCase();
+    if (tables[code]) return code;
   }
-  const nav = (navigator.language || 'en').slice(0, 2).toLowerCase();
-  return tables[nav] ? nav : 'en';
+  return 'en';
 }
 
-let lang = initialLang();
+/** A language picked in the menu; null means "follow the device". */
+function chosenLang(): string | null {
+  try {
+    const saved = localStorage.getItem('pr.lang');
+    return saved && tables[saved] ? saved : null;
+  } catch {
+    return null;
+  }
+}
+
+let lang = chosenLang() ?? deviceLang();
 
 export function getLang(): string {
   return lang;
 }
 
+/** 'auto' while the interface follows the device language, otherwise the chosen code. */
+export function langSetting(): string {
+  return chosenLang() ?? 'auto';
+}
+
 export function setLang(code: string): void {
-  if (!tables[code]) return;
-  lang = code;
+  if (code !== 'auto' && !tables[code]) return;
+  lang = code === 'auto' ? deviceLang() : code;
   try {
-    localStorage.setItem('pr.lang', code);
+    if (code === 'auto') localStorage.removeItem('pr.lang');
+    else localStorage.setItem('pr.lang', code);
   } catch {
     /* ignore */
   }

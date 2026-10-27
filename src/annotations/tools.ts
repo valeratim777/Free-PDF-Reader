@@ -18,11 +18,11 @@ import {
 } from '../geometry';
 import { cssFont, ensureCssFont, measureLines } from '../fonts';
 import { stampBox } from '../decor';
-import { renderAnn } from './render';
+import { renderAnn, svg } from './render';
 import type { Viewer } from '../viewer/viewer';
 import type { PageView } from '../viewer/pageView';
 import { h, icon, toast } from '../ui/dom';
-import { Copy, SquarePen, Trash2 } from 'lucide';
+import { Copy, Eraser, SquarePen, Trash2 } from 'lucide';
 import { rawTextContent } from '../text';
 
 export type Tool =
@@ -45,12 +45,46 @@ export type Tool =
   | 'stamp'
   | 'whiteout'
   | 'redact'
-  | 'eraser';
+  | 'eraser'
+  | 'snapshot'
+  | 'checkmark'
+  | 'crossmark'
+  | 'datemark';
 
 /** Tools that draw on the page and therefore capture pointer input. */
-export const CAPTURE_TOOLS = new Set<Tool>(['pen', 'marker', 'text', 'rect', 'ellipse', 'line', 'arrow', 'note', 'whiteout', 'redact', 'eraser']);
+export const CAPTURE_TOOLS = new Set<Tool>([
+  'pen',
+  'marker',
+  'text',
+  'rect',
+  'ellipse',
+  'line',
+  'arrow',
+  'note',
+  'whiteout',
+  'redact',
+  'eraser',
+  'snapshot',
+  'checkmark',
+  'crossmark',
+  'datemark',
+]);
+/** One tap puts a ready-made mark (✔, ✘, today's date) for filling in paper forms. */
+export const SYMBOL_TOOLS = new Set<Tool>(['checkmark', 'crossmark', 'datemark']);
 /** Tools that work with the PDF's own text. */
 export const TEXT_TOOLS = new Set<Tool>(['select', 'highlight', 'underline', 'strike', 'edittext']);
+const MARKUP_TOOLS = new Set<Tool>(['highlight', 'underline', 'strike']);
+
+export function isMarkup(a: Annotation): a is MarkupAnn {
+  return a.type === 'highlight' || a.type === 'underline' || a.type === 'strike';
+}
+
+/** Quick colors offered right next to a selected markup. */
+const MARK_COLORS: Record<MarkupAnn['type'], string[]> = {
+  highlight: ['#facc15', '#a3e635', '#22d3ee', '#f472b6', '#fb923c'],
+  underline: ['#16a34a', '#2563eb', '#dc2626', '#111827'],
+  strike: ['#dc2626', '#2563eb', '#111827'],
+};
 
 export interface ToolSettings {
   color: string;
@@ -81,7 +115,16 @@ const DEFAULTS: Partial<Record<Tool, Partial<ToolSettings>>> = {
   redact: { color: '#000000' },
   image: {},
   signature: {},
+  checkmark: { color: '#1d4ed8', size: 16 },
+  crossmark: { color: '#dc2626', size: 16 },
+  datemark: { color: '#111827', size: 12 },
 };
+
+function symbolText(tool: Tool): string {
+  if (tool === 'checkmark') return '✔';
+  if (tool === 'crossmark') return '✘';
+  return new Date().toLocaleDateString(document.documentElement.lang || undefined);
+}
 
 const TYPE_TOOL: Record<AnnType, Tool> = {
   ink: 'pen',
@@ -146,6 +189,11 @@ export function stampRect(label: string, size: number, ox: number, oy: number, r
   return rectFromFrame(ox, oy, b.w, b.h, rot);
 }
 
+export interface SnapshotRequest {
+  pageId: string;
+  rect: Rect;
+}
+
 /** Owns the active tool, the selection, and all pointer interaction on pages. */
 export class Tools extends EventTarget {
   tool: Tool = 'select';
@@ -156,6 +204,8 @@ export class Tools extends EventTarget {
   private placing: ((pv: PageView, at: Pt) => void) | null = null;
   private selPopup: HTMLElement | null = null;
   private selTimer = 0;
+  /** A press on an existing markup while a markup tool is active: selects it if it ends as a tap. */
+  private markTap: { id: string; x: number; y: number; pointerId: number } | null = null;
 
   constructor(private viewer: Viewer) {
     super();
@@ -183,7 +233,7 @@ export class Tools extends EventTarget {
     if (tool !== 'select') this.select(null);
     this.tool = tool;
     document.body.dataset.tool = tool;
-    if (tool === 'text') void ensureCssFont('sans', false);
+    if (tool === 'text' || SYMBOL_TOOLS.has(tool)) void ensureCssFont('sans', false);
     if (tool === 'edittext') toast(t('editTextHint'));
     if (tool === 'redact') toast(t('redactHint'), 'info', 5000);
     if (['highlight', 'underline', 'strike'].includes(tool)) {
@@ -292,7 +342,9 @@ export class Tools extends EventTarget {
     const el = h('div.sel-box', {
       style: `left:${box.left - pad}px;top:${box.top - pad}px;width:${box.width + pad * 2}px;height:${box.height + pad * 2}px`,
     });
-    el.addEventListener('pointerdown', (e) => this.startMove(e, pv, a));
+    // Text markups stay on their text; presses go through so the text can still be selected.
+    if (isMarkup(a)) el.classList.add('pass-through');
+    else el.addEventListener('pointerdown', (e) => this.startMove(e, pv, a));
     pv.uiDiv.append(el);
     if (!this.gesture) this.showActions(pv, a, { left: box.left - pad, top: box.top - pad, width: box.width + pad * 2, height: box.height + pad * 2 });
     if (a.type === 'line' || a.type === 'arrow') {
@@ -336,8 +388,27 @@ export class Tools extends EventTarget {
     const btn = (ic: Parameters<typeof icon>[0], label: string, fn: () => void, cls = '') =>
       h('button', { type: 'button', class: cls, title: label, onclick: fn }, icon(ic, 16), h('span', {}, label));
     const bar = h('div.sel-actions', { role: 'toolbar' });
-    if (a.type === 'text' || a.type === 'note') bar.append(btn(SquarePen, t('editMark'), () => this.edit(a)));
-    bar.append(btn(Copy, t('duplicate'), () => this.duplicateSelected()), btn(Trash2, t('delete'), () => this.deleteSelected(), 'danger'));
+    if (isMarkup(a)) {
+      const dots = h('div.mark-colors', { role: 'group', 'aria-label': t('color') });
+      for (const c of MARK_COLORS[a.type]) {
+        dots.append(
+          h('button.mark-color', {
+            type: 'button',
+            class: c.toLowerCase() === a.color.toLowerCase() ? 'active' : '',
+            style: `--c:${c}`,
+            title: c,
+            'aria-label': c,
+            onclick: () => this.applySetting('color', c),
+          }),
+        );
+      }
+      bar.append(dots);
+      if (a.text?.trim()) bar.append(btn(Copy, t('copyText'), () => void navigator.clipboard?.writeText(a.text ?? '').then(() => toast(t('copied')))));
+      bar.append(btn(Eraser, t(a.type === 'highlight' ? 'removeHighlight' : 'removeMark'), () => this.deleteSelected(), 'danger'));
+    } else {
+      if (a.type === 'text' || a.type === 'note') bar.append(btn(SquarePen, t('editMark'), () => this.edit(a)));
+      bar.append(btn(Copy, t('duplicate'), () => this.duplicateSelected()), btn(Trash2, t('delete'), () => this.deleteSelected(), 'danger'));
+    }
     bar.addEventListener('pointerdown', (e) => e.stopPropagation());
     pv.uiDiv.append(bar);
     const w = bar.offsetWidth;
@@ -396,6 +467,8 @@ export class Tools extends EventTarget {
         if (hit) {
           const was = this.selected === hit.id;
           this.select(hit.id);
+          // Markups don't move; the press may also start selecting the text under them.
+          if (isMarkup(hit)) return;
           if (e.pointerType === 'mouse' || e.pointerType === 'pen') this.startMove(e, pv, hit, was);
           else if (was && (hit.type === 'text' || hit.type === 'note')) this.edit(hit);
         } else this.select(null);
@@ -403,13 +476,24 @@ export class Tools extends EventTarget {
       }
       case 'highlight':
       case 'underline':
-      case 'strike':
-        // Over real text the browser selects it; elsewhere (scans) draw a box instead.
-        if (target.closest('.textLayer span') && target.textContent) return;
-        if (this.tool !== 'highlight') return;
+      case 'strike': {
+        const hit = this.hitTest(pv, p);
+        const mark = hit && isMarkup(hit) ? hit : null;
+        const overText = !!(target.closest('.textLayer span') && target.textContent);
+        this.markTap = mark ? { id: mark.id, x: e.clientX, y: e.clientY, pointerId: e.pointerId } : null;
+        if (!mark) this.select(null);
+        // Over real text the browser selects it; a plain tap on an existing mark selects the mark (see onUp).
+        if (overText) return;
         e.preventDefault();
-        this.startDraw(e, pv, p);
+        if (mark) {
+          this.markTap = null;
+          this.select(mark.id);
+          return;
+        }
+        // Scans have no text: draw a box instead.
+        if (this.tool === 'highlight') this.startDraw(e, pv, p);
         return;
+      }
       case 'edittext': {
         const span = target.closest('.textLayer span') as HTMLElement | null;
         if (span && span.textContent?.trim()) {
@@ -438,6 +522,22 @@ export class Tools extends EventTarget {
         store.beginTransient();
         this.eraseAt(pv, p);
         return;
+      case 'checkmark':
+      case 'crossmark':
+      case 'datemark': {
+        e.preventDefault();
+        // Tapping a mark that is already there picks it up instead of stacking another one.
+        const hit = this.hitTest(pv, p);
+        if (hit) {
+          const was = this.selected === hit.id;
+          this.select(hit.id);
+          if (e.pointerType === 'mouse' || e.pointerType === 'pen') this.startMove(e, pv, hit, was);
+          return;
+        }
+        this.select(null);
+        void this.placeSymbol(pv, p, this.tool);
+        return;
+      }
       default:
         if (CAPTURE_TOOLS.has(this.tool)) {
           e.preventDefault();
@@ -511,10 +611,15 @@ export class Tools extends EventTarget {
   private onUp(e: PointerEvent): void {
     const g = this.gesture;
     if (!g || e.pointerId !== g.id) {
-      if (['highlight', 'underline', 'strike'].includes(this.tool) && e.pointerType !== 'touch') {
+      if (MARKUP_TOOLS.has(this.tool)) {
+        const tap = this.markTap && this.markTap.pointerId === e.pointerId ? this.markTap : null;
+        this.markTap = null;
         setTimeout(() => {
           const sel = window.getSelection();
-          if (sel && !sel.isCollapsed && this.selectionInPages(sel)) this.markupFromSelection(this.tool as MarkupAnn['type']);
+          if (sel && !sel.isCollapsed && this.selectionInPages(sel)) {
+            // Touch selections finish with the handles, so they use the popup instead.
+            if (e.pointerType !== 'touch') this.markupFromSelection(this.tool as MarkupAnn['type']);
+          } else if (tap && Math.hypot(e.clientX - tap.x, e.clientY - tap.y) < 8) this.select(tap.id);
         });
       }
       return;
@@ -563,7 +668,7 @@ export class Tools extends EventTarget {
   }
 
   private base(tool: Tool, pv: PageView) {
-    const s = this.settings[tool];
+    const s = this.settings[tool] ?? BASE;
     return { id: uid('a'), pageId: pv.page.id, color: s.color, opacity: s.opacity, created: Date.now(), author: authorName() || undefined };
   }
 
@@ -598,9 +703,16 @@ export class Tools extends EventTarget {
   private updatePreview(): void {
     const g = this.gesture;
     if (!g || g.kind !== 'draw') return;
-    const d = this.draft(g);
     g.preview?.remove();
     g.preview = null;
+    if (g.tool === 'snapshot') {
+      if (g.pts.length < 2) return;
+      const r = normRect(g.pts[0].x, g.pts[0].y, g.pts[1].x, g.pts[1].y);
+      g.preview = svg('rect', { class: 'snap-preview', x: r.x1, y: r.y1, width: rectW(r), height: rectH(r) });
+      g.pv.annG.appendChild(g.preview);
+      return;
+    }
+    const d = this.draft(g);
     if (!d || g.pts.length < 2) return;
     g.preview = renderAnn(d, store.assets);
     g.preview.classList.add('preview');
@@ -609,6 +721,12 @@ export class Tools extends EventTarget {
 
   private finishDraw(g: Extract<Gesture, { kind: 'draw' }>): void {
     if (g.pts.length < 2) return;
+    if (g.tool === 'snapshot') {
+      const r = normRect(g.pts[0].x, g.pts[0].y, g.pts[1].x, g.pts[1].y);
+      if (rectW(r) * g.pv.scale < 8 || rectH(r) * g.pv.scale < 8) return;
+      this.dispatchEvent(new CustomEvent<SnapshotRequest>('snapshot', { detail: { pageId: g.pv.page.id, rect: r } }));
+      return;
+    }
     if (g.tool === 'pen' || g.tool === 'marker') g.pts = simplify(g.pts, 0.6 / g.pv.scale);
     const d = this.draft(g);
     if (!d) return;
@@ -618,6 +736,28 @@ export class Tools extends EventTarget {
       if (Math.hypot(d.p2.x - d.p1.x, d.p2.y - d.p1.y) < minSize * 2) return;
     } else if (d.type !== 'ink' && d.type !== 'marker' && (rectW(bb) < minSize || rectH(bb) < minSize)) return;
     store.addAnn(d);
+  }
+
+  /** Puts ✔, ✘ or today's date centered on the tapped point. */
+  private async placeSymbol(pv: PageView, p: Pt, tool: Tool): Promise<void> {
+    const s = this.settings[tool];
+    await ensureCssFont('sans', false);
+    const rot = normTurn(pv.rotation);
+    const draft = relayoutText({
+      ...this.base(tool, pv),
+      type: 'text',
+      rect: rectFromFrame(p.x, p.y, 10, 10, rot),
+      rot,
+      text: symbolText(tool),
+      font: 'sans',
+      bold: false,
+      size: s.size,
+      bg: null,
+      pad: 0,
+    });
+    const bb = annBBox(draft);
+    const a = translateAnn(draft, p.x - (bb.x1 + bb.x2) / 2, p.y - (bb.y1 + bb.y2) / 2);
+    store.addAnn(a);
   }
 
   private eraseAt(pv: PageView, p: Pt): void {
@@ -665,10 +805,41 @@ export class Tools extends EventTarget {
       });
     }
     if (!created.length) return false;
-    store.commit('anns', (st) => st.anns.push(...created), created.map((a) => a.pageId));
+    // Marking the same text again (e.g. in another color) replaces the old mark instead of stacking.
+    const replaced = new Set<string>();
+    for (const c of created) {
+      if (c.type !== type) continue;
+      for (const a of store.annsOf(c.pageId)) if (a.type === type && a.rects.every((q) => c.rects.some((r) => overlapArea(q, r) >= area(q) * 0.8))) replaced.add(a.id);
+    }
+    store.commit(
+      'anns',
+      (st) => {
+        st.anns = st.anns.filter((a) => !replaced.has(a.id));
+        st.anns.push(...created);
+      },
+      created.map((a) => a.pageId),
+    );
     sel.removeAllRanges();
     this.hideSelPopup();
+    // Selected right away so its color can be changed or the mark removed from the bar next to it.
+    if (created.length === 1) this.select(created[0].id);
     return true;
+  }
+
+  /** Markups that overlap the selected text. */
+  private marksUnder(sel: Selection): MarkupAnn[] {
+    if (!sel.rangeCount) return [];
+    const found = new Map<string, MarkupAnn>();
+    for (const r of Array.from(sel.getRangeAt(0).getClientRects())) {
+      if (r.width < 0.5 || r.height < 0.5) continue;
+      const pv = this.viewer.viewAtPoint(r.left + r.width / 2, r.top + r.height / 2);
+      if (!pv) continue;
+      const u = pv.clientRectToUser(r);
+      for (const a of store.annsOf(pv.page.id)) {
+        if (isMarkup(a) && a.rects.some((q) => overlapArea(q, u) > Math.min(area(q), area(u)) * 0.3)) found.set(a.id, a);
+      }
+    }
+    return [...found.values()];
   }
 
   private onSelectionChange(): void {
@@ -704,6 +875,18 @@ export class Tools extends EventTarget {
       btn(t('underlineSelection'), () => this.markupFromSelection('underline')),
       btn(t('strikeSelection'), () => this.markupFromSelection('strike')),
     );
+    const marks = this.marksUnder(sel);
+    if (marks.length) {
+      pop.append(
+        btn(t(marks.every((m) => m.type === 'highlight') ? 'removeHighlight' : 'removeMark'), () => {
+          this.select(null);
+          store.removeAnns(marks.map((m) => m.id));
+          sel.removeAllRanges();
+          this.hideSelPopup();
+        }),
+      );
+      pop.lastElementChild!.classList.add('danger');
+    }
     document.body.append(pop);
     const top = r.top - pop.offsetHeight - 10 > 60 ? r.top - pop.offsetHeight - 10 : r.bottom + 34;
     pop.style.top = `${Math.min(window.innerHeight - pop.offsetHeight - 8, top)}px`;
@@ -958,6 +1141,14 @@ async function pdfFontFamily(pv: PageView, span: HTMLElement): Promise<string> {
     /* keep the span's own family */
   }
   return family;
+}
+
+function area(r: Rect): number {
+  return rectW(r) * rectH(r);
+}
+
+function overlapArea(a: Rect, b: Rect): number {
+  return Math.max(0, Math.min(a.x2, b.x2) - Math.max(a.x1, b.x1)) * Math.max(0, Math.min(a.y2, b.y2) - Math.max(a.y1, b.y1));
 }
 
 /** Merges per-glyph/per-span rectangles of a text selection into one box per line. */

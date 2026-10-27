@@ -13,6 +13,7 @@ interface DesktopFile {
 interface DesktopBridge {
   pendingFiles(): Promise<DesktopFile[]>;
   onOpenFile(cb: (f: DesktopFile) => void): void;
+  appInfo?(): Promise<{ version: string; portable: boolean; platform: string }>;
 }
 
 export function isNativeApp(): boolean {
@@ -21,6 +22,19 @@ export function isNativeApp(): boolean {
 
 export function desktopBridge(): DesktopBridge | null {
   return (window as unknown as { desktop?: DesktopBridge }).desktop ?? null;
+}
+
+/** Opens a web address in the system browser (the apps never navigate away from themselves). */
+export function openExternal(url: string): void {
+  if (isNativeApp()) {
+    // The Android shell hands any outside address to the browser instead of loading it.
+    const a = document.createElement('a');
+    a.href = url;
+    a.rel = 'noopener';
+    a.click();
+    return;
+  }
+  window.open(url, '_blank', 'noopener');
 }
 
 async function toBase64(blob: Blob): Promise<string> {

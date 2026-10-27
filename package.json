@@ -1,7 +1,7 @@
 {
   "name": "pdf-reader",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.1.0",
   "type": "module",
   "scripts": {
     "predev": "node scripts/copy-assets.mjs",
@@ -15,7 +15,7 @@
     "dist:win": "npm run build && electron-builder --win --x64",
     "dist:linux": "npm run build && electron-builder --linux",
     "android": "npm run build && cap sync android",
-    "apk": "npm run android && cd android && ./gradlew assembleDebug"
+    "apk": "npm run android && cd android && ./gradlew assembleRelease"
   },
   "dependencies": {
     "@cantoo/fontkit": "^2.0.12",
