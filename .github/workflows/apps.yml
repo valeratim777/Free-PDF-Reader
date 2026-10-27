@@ -1,5 +1,5 @@
-# Builds the Windows installer / portable .exe and the Android .apk and puts them
-# on the repository's Releases page. Run it from Actions → "Build apps" → Run
+# Builds the Windows installer / portable .exe, the macOS disk image and the
+# Android .apk and puts them on the repository's Releases page. Run it from Actions → "Build apps" → Run
 # workflow, or push a tag like v1.0.1.
 name: Build apps
 
@@ -27,6 +27,39 @@ jobs:
         with:
           name: windows
           path: release/*.exe
+
+  mac:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npx electron-builder --mac --publish never
+      # The disk image must hold a validly signed app for both processor types
+      # that actually starts; a broken signature shows up as "app is damaged".
+      - name: Check the app
+        run: |
+          dmg=$(ls release/*.dmg)
+          mnt=$(hdiutil attach "$dmg" -nobrowse -readonly | tail -1 | cut -f3)
+          app="$mnt/PDF Reader.app"
+          codesign --verify --deep --strict --verbose=2 "$app"
+          archs=$(lipo -archs "$app/Contents/MacOS/PDF Reader")
+          echo "architectures: $archs"
+          [[ "$archs" == *x86_64* && "$archs" == *arm64* ]]
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist"
+          "$app/Contents/MacOS/PDF Reader" & pid=$!
+          sleep 20
+          kill -0 "$pid"
+          kill "$pid"
+          hdiutil detach "$mnt"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mac
+          path: release/*.dmg
 
   android:
     runs-on: ubuntu-latest
@@ -76,7 +109,7 @@ jobs:
           path: out/*.apk
 
   release:
-    needs: [windows, android]
+    needs: [windows, mac, android]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -93,5 +126,5 @@ jobs:
           if gh release view "$tag" > /dev/null 2>&1; then
             gh release upload "$tag" files/* --clobber
           else
-            gh release create "$tag" files/* --title "PDF Reader ${version}" --notes "Windows: PDF-Reader-Setup-${version}.exe (installer, updates an installed copy) or PDF-Reader-${version}-portable.exe (no install). Android: PDF-Reader-${version}.apk."
+            gh release create "$tag" files/* --title "PDF Reader ${version}" --notes "Windows: PDF-Reader-Setup-${version}.exe (installer, updates an installed copy) or PDF-Reader-${version}-portable.exe (no install). macOS: PDF-Reader-${version}-mac.dmg (Apple Silicon and Intel). Android: PDF-Reader-${version}.apk."
           fi

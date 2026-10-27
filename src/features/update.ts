@@ -58,6 +58,7 @@ async function downloadUrl(rel: Release): Promise<string> {
       ?.appInfo?.()
       .catch(() => null);
     if (info?.platform === 'win32') pattern = info.portable ? /portable\.exe$/i : /setup.*\.exe$/i;
+    else if (info?.platform === 'darwin') pattern = /\.dmg$/i;
   }
   const asset = pattern ? rel.assets.find((a) => pattern!.test(a.name)) : undefined;
   return asset?.browser_download_url ?? rel.html_url;
