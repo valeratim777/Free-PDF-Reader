@@ -1,4 +1,18 @@
+import groovy.json.JsonSlurper
+
 apply plugin: 'com.android.application'
+
+// One version for every build: the "version" in package.json (1.2.3 -> code 10203).
+def appVersion = new JsonSlurper().parse(rootProject.file('../package.json')).version as String
+def versionParts = appVersion.tokenize('.').collect { it as int } + [0, 0, 0]
+
+// Android installs an update over the existing app only if both are signed with
+// the same key. The key comes from android/keystore.properties for local builds or
+// from ANDROID_KEYSTORE_* variables in GitHub Actions; it is never committed.
+def signing = new Properties()
+def signingFile = rootProject.file('keystore.properties')
+if (signingFile.exists()) signingFile.withInputStream { signing.load(it) }
+def keystorePath = System.getenv('ANDROID_KEYSTORE_FILE') ?: signing.getProperty('storeFile')
 
 android {
     namespace = "io.github.valeratim777.pdfreader"
@@ -7,8 +21,8 @@ android {
         applicationId "io.github.valeratim777.pdfreader"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        versionCode versionParts[0] * 10000 + versionParts[1] * 100 + versionParts[2]
+        versionName appVersion
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -16,10 +30,23 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    signingConfigs {
+        release {
+            if (keystorePath) {
+                storeFile rootProject.file(keystorePath)
+                storePassword System.getenv('ANDROID_KEYSTORE_PASSWORD') ?: signing.getProperty('storePassword', 'android')
+                keyAlias System.getenv('ANDROID_KEY_ALIAS') ?: signing.getProperty('keyAlias', 'androiddebugkey')
+                keyPassword System.getenv('ANDROID_KEY_PASSWORD') ?: signing.getProperty('keyPassword', 'android')
+            }
+        }
+    }
     buildTypes {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            // Without the app's key this falls back to a local debug key: fine for trying
+            // a build, but such an APK cannot update an installed copy.
+            signingConfig keystorePath ? signingConfigs.release : signingConfigs.debug
         }
     }
 }

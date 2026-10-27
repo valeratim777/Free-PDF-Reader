@@ -3,7 +3,7 @@ import { t } from '../i18n';
 import { pageText, type PageText } from '../text';
 import type { Viewer } from '../viewer/viewer';
 import type { PageView } from '../viewer/pageView';
-import { CaseSensitive, ChevronDown, ChevronUp, WholeWord, X } from 'lucide';
+import { CaseSensitive, ChevronDown, ChevronUp, List, WholeWord, X } from 'lucide';
 import { h, icon, iconButton } from './dom';
 
 interface Match {
@@ -11,6 +11,10 @@ interface Match {
   start: number;
   end: number;
 }
+
+/** The list shows this many hits; the arrows still step through all of them. */
+const LIST_LIMIT = 500;
+const narrow = matchMedia('(max-width: 760px)');
 
 /** Full-text search across all pages with highlighting in the text layer. */
 export class Search {
@@ -26,10 +30,26 @@ export class Search {
   private runId = 0;
   private timer = 0;
   private texts = new Map<string, PageText>();
+  private list: HTMLElement;
+  private listBtn: HTMLButtonElement;
+  private listOpen = true;
+  private rows: HTMLElement[] = [];
+  private scanned = 0;
 
   constructor(private viewer: Viewer) {
     this.input = h('input', { type: 'search', placeholder: t('search'), enterkeyhint: 'search' });
     this.count = h('span.search-count');
+    this.list = h('div.search-results', { role: 'listbox', 'aria-label': t('searchResults') });
+    this.listBtn = h(
+      'button.icon-btn.search-list-btn',
+      { type: 'button', title: t('searchResults'), 'aria-label': t('searchResults'), 'aria-pressed': 'true', onclick: () => this.toggleList() },
+      icon(List, 18),
+    );
+    try {
+      this.listOpen = localStorage.getItem('pr.searchList') !== '0';
+    } catch {
+      /* ignore */
+    }
     const toggle = (ic: Parameters<typeof icon>[0], label: string, get: () => boolean, set: (v: boolean) => void) => {
       const b = h('button.icon-btn.search-opt', { type: 'button', title: label, 'aria-label': label, 'aria-pressed': 'false' }, icon(ic, 18));
       b.addEventListener('click', () => {
@@ -43,14 +63,27 @@ export class Search {
     this.el = h(
       'div#searchbar',
       {},
-      this.input,
-      this.count,
-      iconButton(ChevronUp, `${t('prevMatch')} (Shift+Enter)`, () => this.step(-1)),
-      iconButton(ChevronDown, `${t('nextMatch')} (Enter)`, () => this.step(1)),
-      toggle(CaseSensitive, t('matchCase'), () => this.matchCase, (v) => (this.matchCase = v)),
-      toggle(WholeWord, t('wholeWord'), () => this.wholeWord, (v) => (this.wholeWord = v)),
-      iconButton(X, t('close'), () => this.close()),
+      h(
+        'div.search-row',
+        {},
+        this.input,
+        this.count,
+        iconButton(ChevronUp, `${t('prevMatch')} (Shift+Enter)`, () => this.step(-1)),
+        iconButton(ChevronDown, `${t('nextMatch')} (Enter)`, () => this.step(1)),
+        this.listBtn,
+        toggle(CaseSensitive, t('matchCase'), () => this.matchCase, (v) => (this.matchCase = v)),
+        toggle(WholeWord, t('wholeWord'), () => this.wholeWord, (v) => (this.wholeWord = v)),
+        iconButton(X, t('close'), () => this.close()),
+      ),
+      this.list,
     );
+    this.syncListVisibility();
+    this.el.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        this.close();
+      }
+    });
     this.input.addEventListener('input', () => {
       clearTimeout(this.timer);
       this.timer = window.setTimeout(() => void this.run(), 250);
@@ -85,10 +118,32 @@ export class Search {
 
   close(): void {
     this.el.classList.remove('show');
+    this.runId++;
     this.matches = [];
     this.index = -1;
     this.count.textContent = '';
+    this.rows = [];
+    this.list.replaceChildren();
+    this.syncListVisibility();
     for (const v of this.viewer.order) v.searchDiv.replaceChildren();
+  }
+
+  private toggleList(open = !this.listOpen): void {
+    this.listOpen = open;
+    try {
+      localStorage.setItem('pr.searchList', open ? '1' : '0');
+    } catch {
+      /* ignore */
+    }
+    this.syncListVisibility();
+    if (open) this.rows[this.index]?.scrollIntoView({ block: 'nearest' });
+  }
+
+  private syncListVisibility(): void {
+    const show = this.listOpen && !!this.input.value.trim();
+    this.list.classList.toggle('show', show);
+    this.listBtn.classList.toggle('active', this.listOpen);
+    this.listBtn.setAttribute('aria-pressed', String(this.listOpen));
   }
 
   /** Document changed: cached results may point to removed pages. */
@@ -103,9 +158,13 @@ export class Search {
     const q = this.input.value;
     this.matches = [];
     this.index = -1;
+    this.scanned = 0;
     for (const v of this.viewer.order) v.searchDiv.replaceChildren();
+    this.syncListVisibility();
     if (!q.trim()) {
       this.count.textContent = '';
+      this.rows = [];
+      this.list.replaceChildren();
       return;
     }
     const cs = this.matchCase;
@@ -131,9 +190,14 @@ export class Search {
         if (whole && (isWord(hay[at - 1]) || isWord(hay[at + needle.length]))) continue;
         this.matches.push({ pageId: p.id, start: at, end: at + needle.length });
       }
-      if (k % 20 === 0) this.updateCount();
+      this.scanned = k + 1;
+      if (k % 20 === 0) {
+        this.updateCount();
+        this.renderList();
+      }
     }
     this.updateCount();
+    this.renderList();
     if (jump && this.matches.length) {
       const cur = this.viewer.current;
       const order = new Map(pages.map((p, i) => [p.id, i]));
@@ -148,6 +212,75 @@ export class Search {
     this.count.textContent = n ? `${this.index + 1 || '–'} / ${n}` : this.input.value ? t('noResults') : '';
   }
 
+  /** The full list of hits with a bit of surrounding text, grouped by page. */
+  private renderList(): void {
+    const pages = store.state.pages;
+    const order = new Map(pages.map((p, i) => [p.id, i]));
+    const total = this.matches.length;
+    const done = this.scanned >= pages.length;
+    const head = h(
+      'div.sr-head',
+      {},
+      total
+        ? t('searchSummary', { n: total, p: new Set(this.matches.map((m) => m.pageId)).size })
+        : done
+          ? t('noResults')
+          : t('searching'),
+      !done ? h('span.sr-progress', {}, ` ${this.scanned}/${pages.length}`) : null,
+    );
+    this.rows = [];
+    const out: Node[] = [head];
+    let lastPage = '';
+    for (let i = 0; i < Math.min(total, LIST_LIMIT); i++) {
+      const m = this.matches[i];
+      if (m.pageId !== lastPage) {
+        lastPage = m.pageId;
+        out.push(h('div.sr-page', {}, `${t('page')} ${(order.get(m.pageId) ?? 0) + 1}`));
+      }
+      const row = h(
+        'button.sr-item',
+        { type: 'button', role: 'option', onclick: () => this.pick(i) },
+        ...this.snippet(m),
+      );
+      if (i === this.index) row.classList.add('current');
+      this.rows.push(row);
+      out.push(row);
+    }
+    if (total > LIST_LIMIT) out.push(h('div.sr-more', {}, t('searchMore', { n: total - LIST_LIMIT })));
+    this.list.replaceChildren(...out);
+  }
+
+  private snippet(m: Match): (Node | string)[] {
+    const pg = store.page(m.pageId);
+    const text = pg ? this.texts.get(`${pg.src}:${pg.index}`)?.text ?? '' : '';
+    let a = Math.max(0, m.start - 40);
+    let b = Math.min(text.length, m.end + 70);
+    // Start and end on word boundaries so the context reads naturally.
+    if (a > 0) {
+      const sp = text.slice(a, m.start).search(/\s/);
+      if (sp >= 0) a += sp + 1;
+    }
+    if (b < text.length) {
+      const sp = text.slice(m.end, b).lastIndexOf(' ');
+      if (sp > 10) b = m.end + sp;
+    }
+    const clean = (x: string) => x.replace(/\s+/g, ' ');
+    return [
+      (a > 0 ? '…' : '') + clean(text.slice(a, m.start)).trimStart(),
+      h('mark', {}, clean(text.slice(m.start, m.end))),
+      clean(text.slice(m.end, b)).trimEnd() + (b < text.length ? '…' : ''),
+    ];
+  }
+
+  private pick(i: number): void {
+    this.select(i);
+    // On a phone the list covers the page: fold it so the hit is visible.
+    if (narrow.matches) {
+      this.listOpen = false;
+      this.syncListVisibility();
+    }
+  }
+
   step(dir: number): void {
     if (!this.matches.length) return;
     const n = this.matches.length;
@@ -156,9 +289,15 @@ export class Search {
 
   private select(i: number): void {
     const prev = this.matches[this.index];
+    this.rows[this.index]?.classList.remove('current');
     this.index = i;
     this.reveal = true;
     this.updateCount();
+    const row = this.rows[i];
+    if (row) {
+      row.classList.add('current');
+      if (this.list.classList.contains('show')) row.scrollIntoView({ block: 'nearest' });
+    }
     const m = this.matches[i];
     const pi = store.pageIndex(m.pageId);
     if (pi < 0) return;

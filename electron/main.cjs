@@ -88,6 +88,9 @@ function createWindow() {
   });
 }
 
+// The portable .exe sets PORTABLE_EXECUTABLE_FILE; updates then point to the portable download.
+ipcMain.handle('app-info', () => ({ version: app.getVersion(), portable: !!process.env.PORTABLE_EXECUTABLE_FILE, platform: process.platform }));
+
 ipcMain.handle('pending-files', () => {
   const files = pending.filter((p) => fs.existsSync(p)).map(readPdf);
   pending = [];

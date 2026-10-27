@@ -2,6 +2,8 @@ import type { IconNode } from 'lucide';
 import {
   ArrowUpRight,
   Brush,
+  CalendarDays,
+  Check,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -23,6 +25,7 @@ import {
   RectangleHorizontal,
   Redo2,
   Save,
+  Scan,
   Search,
   Shapes,
   Signature,
@@ -40,7 +43,7 @@ import {
 } from 'lucide';
 import { t, type Key } from '../i18n';
 import { store } from '../store';
-import { toolOfType, type Tool, type Tools } from '../annotations/tools';
+import { SYMBOL_TOOLS, toolOfType, type Tool, type Tools } from '../annotations/tools';
 import type { Viewer, ZoomMode } from '../viewer/viewer';
 import { h, icon, iconButton, openMenu, type MenuItem } from './dom';
 import type { FontKey } from '../model';
@@ -90,6 +93,10 @@ export const TOOL_INFO: Record<Tool, ToolInfo> = {
   stamp: { icon: Stamp, label: 'toolStamp', short: 'toolStamp', desc: 'descStamp', hint: 'placeHint' },
   whiteout: { icon: RectangleHorizontal, label: 'toolWhiteout', short: 'toolWhiteout', desc: 'descWhiteout', key: 'W', hint: 'hintWhiteout' },
   redact: { icon: EyeOff, label: 'toolRedact', short: 'toolRedact', desc: 'descRedact', hint: 'redactHint' },
+  snapshot: { icon: Scan, label: 'toolSnapshot', short: 'shortSnapshot', desc: 'descSnapshot', key: 'G', hint: 'hintSnapshot' },
+  checkmark: { icon: Check, label: 'toolCheck', short: 'shortCheck', desc: 'descSymbols', hint: 'hintSymbol' },
+  crossmark: { icon: X, label: 'toolCross', short: 'shortCross', desc: 'descSymbols', hint: 'hintSymbol' },
+  datemark: { icon: CalendarDays, label: 'toolDate', short: 'shortDate', desc: 'descSymbols', hint: 'hintSymbol' },
 };
 
 export interface ToolGroup {
@@ -104,7 +111,7 @@ export interface ToolGroup {
 
 /** Toolbar layout, ordered by how often people need the tools. */
 export const TOOL_GROUPS: ToolGroup[] = [
-  { id: 'select', tools: ['select', 'hand'] },
+  { id: 'select', tools: ['select', 'hand', 'snapshot'] },
   { id: 'markup', tools: ['highlight', 'underline', 'strike'] },
   { id: 'note', tools: ['note'] },
   { id: 'text', tools: ['text'] },
@@ -112,7 +119,7 @@ export const TOOL_GROUPS: ToolGroup[] = [
   { id: 'draw', tools: ['pen', 'marker', 'eraser'] },
   { id: 'shapes', tools: ['rect', 'ellipse', 'line', 'arrow'], label: 'groupShapes', icon: Shapes },
   { id: 'sign', tools: ['signature'] },
-  { id: 'insert', tools: ['image', 'stamp'], label: 'groupInsert', icon: ImagePlus, menuOnly: true },
+  { id: 'insert', tools: ['image', 'stamp', 'checkmark', 'crossmark', 'datemark'], label: 'groupInsert', icon: ImagePlus, menuOnly: true },
   { id: 'hide', tools: ['whiteout', 'redact'], label: 'groupHide', icon: EyeOff },
 ];
 
@@ -360,7 +367,7 @@ export class ToolBar {
 const PALETTE = ['#dc2626', '#ea580c', '#facc15', '#16a34a', '#0891b2', '#2563eb', '#7c3aed', '#db2777', '#111827', '#ffffff'];
 const HIGHLIGHTS = ['#facc15', '#a3e635', '#22d3ee', '#f472b6', '#fb923c', '#c084fc'];
 const isTouch = matchMedia('(pointer: coarse)').matches;
-const CAPTURE = ['pen', 'marker', 'eraser', 'rect', 'ellipse', 'line', 'arrow', 'whiteout', 'redact', 'text', 'note'];
+const CAPTURE = ['pen', 'marker', 'eraser', 'rect', 'ellipse', 'line', 'arrow', 'whiteout', 'redact', 'text', 'note', 'snapshot', 'checkmark', 'crossmark', 'datemark'];
 
 const narrow = matchMedia('(max-width: 760px)');
 
@@ -412,7 +419,7 @@ export class PropsBar {
         });
         parts.push(h('label.prop', {}, on, t('fill'), col));
       }
-      if (!['whiteout', 'redact', 'note', 'hand', 'eraser', 'edittext'].includes(key)) {
+      if (!['whiteout', 'redact', 'note', 'hand', 'eraser', 'edittext'].includes(key) && !SYMBOL_TOOLS.has(key)) {
         parts.push(this.range(t('opacity'), Math.round(s.opacity * 100), 10, 100, 5, (v) => this.tools.applySetting('opacity', v / 100), '%'));
       }
       if (key === 'text') {
@@ -433,6 +440,7 @@ export class PropsBar {
         parts.push(bold);
       }
       if (key === 'stamp' && sel) parts.push(this.number(t('size'), s.size, 6, 96, (v) => this.tools.applySetting('size', v)));
+      if (SYMBOL_TOOLS.has(key)) parts.push(this.number(t('size'), s.size, 6, 72, (v) => this.tools.applySetting('size', v)));
     }
     if (!sel) {
       const hintKey = TOOL_INFO[tool]?.hint;

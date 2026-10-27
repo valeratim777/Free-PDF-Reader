@@ -5,6 +5,7 @@ import { pageInfo } from '../pages';
 import type { Rect } from '../model';
 import { busy, downloadBlob, toast } from '../ui/dom';
 import { isNativeApp, nativeShare } from './native';
+import { noteSaved } from './recent';
 import { t } from '../i18n';
 
 export interface SaveOptions {
@@ -124,6 +125,7 @@ export async function save(asNew = false): Promise<boolean> {
       if (r === 'cancelled') return false;
       if (r === 'unavailable') downloadBlob(new Blob([bytes.slice()], { type: 'application/pdf' }), suggestedName());
     }
+    void noteSaved(bytes, store.fileName);
     store.dirty = false;
     store.emit({ kind: 'doc' });
     if (!isNativeApp()) toast(t('saved'), 'success');
@@ -143,6 +145,7 @@ export async function download(): Promise<void> {
   try {
     const bytes = await exportPdf();
     downloadBlob(new Blob([bytes.slice()], { type: 'application/pdf' }), suggestedName());
+    void noteSaved(bytes, store.fileName);
     store.dirty = false;
     store.emit({ kind: 'doc' });
   } catch (e) {
@@ -166,8 +169,9 @@ export async function share(): Promise<void> {
   if (!store.isOpen) return;
   busy(true, t('saving'));
   let file: File;
+  let bytes: Uint8Array;
   try {
-    const bytes = await exportPdf();
+    bytes = await exportPdf();
     file = new File([bytes.slice()], suggestedName(), { type: 'application/pdf' });
   } catch (e) {
     toast(t('errorSave', { msg: (e as Error).message }), 'error');
@@ -178,6 +182,7 @@ export async function share(): Promise<void> {
   try {
     if (isNativeApp()) await nativeShare(file, file.name);
     else await navigator.share({ files: [file], title: file.name });
+    void noteSaved(bytes, store.fileName);
     store.dirty = false;
     store.emit({ kind: 'doc' });
   } catch (e) {

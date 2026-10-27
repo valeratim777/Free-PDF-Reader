@@ -44,13 +44,33 @@ jobs:
       - run: npm run build
       - run: npx cap sync android
       - run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;36.0.0" > /dev/null
-      - run: ./gradlew assembleDebug --no-daemon
+      # Every version must be signed with the same key, otherwise Android will not
+      # install it over the previous one. The key lives in the ANDROID_KEYSTORE secret
+      # (base64 of the keystore file); without it the APK is not published.
+      - id: key
+        env:
+          ANDROID_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE }}
+        run: |
+          if [ -n "$ANDROID_KEYSTORE" ]; then
+            echo "$ANDROID_KEYSTORE" | base64 -d > "$RUNNER_TEMP/release.keystore"
+            echo "ANDROID_KEYSTORE_FILE=$RUNNER_TEMP/release.keystore" >> "$GITHUB_ENV"
+            echo "signed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::The ANDROID_KEYSTORE secret is not set, so the APK cannot update an installed app and is left out of the release."
+          fi
+      - run: ./gradlew assembleRelease --no-daemon
         working-directory: android
-      - run: |
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+      - if: steps.key.outputs.signed == 'true'
+        run: |
           version=$(node -p "require('./package.json').version")
           mkdir -p out
-          cp android/app/build/outputs/apk/debug/app-debug.apk "out/PDF-Reader-${version}.apk"
-      - uses: actions/upload-artifact@v4
+          cp android/app/build/outputs/apk/release/app-release.apk "out/PDF-Reader-${version}.apk"
+      - if: steps.key.outputs.signed == 'true'
+        uses: actions/upload-artifact@v4
         with:
           name: android
           path: out/*.apk
@@ -73,5 +93,5 @@ jobs:
           if gh release view "$tag" > /dev/null 2>&1; then
             gh release upload "$tag" files/* --clobber
           else
-            gh release create "$tag" files/* --title "PDF Reader ${version}" --notes "Windows: PDF-Reader-Setup-${version}.exe (installer) or PDF-Reader-${version}-portable.exe (no install). Android: PDF-Reader-${version}.apk."
+            gh release create "$tag" files/* --title "PDF Reader ${version}" --notes "Windows: PDF-Reader-Setup-${version}.exe (installer, updates an installed copy) or PDF-Reader-${version}-portable.exe (no install). Android: PDF-Reader-${version}.apk."
           fi

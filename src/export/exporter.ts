@@ -597,13 +597,16 @@ async function replaceWithImage(doc: PDFDocument, i: number, raster: Raster): Pr
 }
 
 /** Creates a PDF from images (one page per image, page sized to the image). */
-export async function imagesToPdf(images: { bytes: Uint8Array; mime: string; width: number; height: number }[], fit: 'image' | 'a4' = 'image'): Promise<Uint8Array> {
+export async function imagesToPdf(
+  images: { bytes: Uint8Array; mime: string; width: number; height: number; /** Page size in points, if known. */ pt?: { w: number; h: number } }[],
+  fit: 'image' | 'a4' = 'image',
+): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
   for (const im of images) {
     const img = im.mime === 'image/png' ? await doc.embedPng(im.bytes) : await doc.embedJpg(im.bytes);
     // 96 dpi screen pixels → points
-    let w = (im.width * 72) / 96;
-    let hh = (im.height * 72) / 96;
+    let w = im.pt?.w ?? (im.width * 72) / 96;
+    let hh = im.pt?.h ?? (im.height * 72) / 96;
     if (fit === 'a4') {
       const [pw, ph] = im.width > im.height ? [842, 595] : [595, 842];
       const k = Math.min((pw - 40) / w, (ph - 40) / hh, 1);

@@ -428,6 +428,17 @@ body.sidebar-open #sidebar {
   box-shadow: 0 0 0 1px var(--border);
 }
 
+.comment-item .ci-delete {
+  width: 28px;
+  height: 28px;
+  margin: -4px -4px -4px 0;
+  color: var(--muted);
+}
+
+.comment-item .ci-delete:hover {
+  color: var(--danger);
+}
+
 .comment-item .ci-text {
   margin-top: 4px;
   white-space: pre-wrap;
@@ -790,7 +801,8 @@ body[data-tool='highlight'] .textLayer ::selection {
   position: absolute;
   inset: 0;
   display: flex;
-  align-items: center;
+  /* The card centers itself with auto margins, so a long recent list still scrolls from the top. */
+  align-items: flex-start;
   justify-content: center;
   padding: 24px;
   background: var(--bg);
@@ -812,6 +824,7 @@ body:not(.has-doc) .doc-only {
   max-width: 560px;
   width: 100%;
   text-align: center;
+  margin: auto;
 }
 
 .welcome-card .hero-logo {
@@ -1180,8 +1193,7 @@ textarea.input {
   right: 14px;
   z-index: 16;
   display: none;
-  align-items: center;
-  gap: 4px;
+  flex-direction: column;
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 12px;
@@ -1192,6 +1204,90 @@ textarea.input {
 
 #searchbar.show {
   display: flex;
+}
+
+.search-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.search-list-btn.active {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.search-results {
+  display: none;
+  flex-direction: column;
+  /* Long snippets wrap instead of widening the search box. */
+  contain: inline-size;
+  max-height: min(55vh, 460px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  margin-top: 6px;
+  border-top: 1px solid var(--border);
+  padding-top: 4px;
+}
+
+.search-results.show {
+  display: flex;
+}
+
+.sr-head {
+  font-size: 12px;
+  color: var(--muted);
+  padding: 4px 8px 6px;
+}
+
+.sr-page {
+  position: sticky;
+  top: 0;
+  background: var(--panel);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  padding: 6px 8px 3px;
+}
+
+.sr-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.4;
+  padding: 6px 8px;
+  border-radius: 8px;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+
+.sr-item:hover {
+  background: var(--panel-2);
+}
+
+.sr-item.current {
+  background: var(--accent-soft);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.sr-item mark {
+  background: #fde047;
+  color: #111827;
+  border-radius: 3px;
+  padding: 0 1px;
+}
+
+.sr-more {
+  font-size: 12px;
+  color: var(--muted);
+  padding: 8px;
 }
 
 #searchbar input[type='search'] {
@@ -1584,6 +1680,14 @@ body.presenting .page {
     width: auto;
   }
 
+  .search-results {
+    max-height: 50vh;
+  }
+
+  .sr-item {
+    padding: 9px 8px;
+  }
+
   .search-opt {
     display: none;
   }
@@ -1946,6 +2050,44 @@ body.presenting .page {
   .sel-actions button {
     padding: 9px 12px;
   }
+}
+
+.sel-box.pass-through {
+  pointer-events: none;
+}
+
+.mark-colors {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 4px;
+}
+
+.sel-actions .mark-color {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border-radius: 50%;
+  justify-content: center;
+}
+
+.sel-actions .mark-color::before {
+  content: '';
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--c);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.35);
+}
+
+.sel-actions .mark-color.active::before {
+  box-shadow:
+    0 0 0 2px #111827,
+    0 0 0 4px #fff;
+}
+
+.sel-popup button.danger {
+  color: #fca5a5;
 }
 
 /* ---- menus ---- */
@@ -2333,4 +2475,164 @@ kbd {
   .toasts {
     bottom: calc(150px + var(--safe-bottom));
   }
+}
+
+/* ---- recent files ---- */
+
+.recent {
+  margin-top: 22px;
+  text-align: left;
+}
+
+.recent-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.recent-head h2 {
+  font-size: 15px;
+  margin: 0;
+}
+
+.recent-head .link-btn {
+  margin-top: 0;
+  font-size: 13px;
+}
+
+.recent-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.recent-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel);
+  padding-right: 4px;
+}
+
+.recent-item:hover {
+  border-color: var(--accent);
+}
+
+.recent-open {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+
+.recent-thumb {
+  width: 36px;
+  height: 46px;
+  flex: none;
+  object-fit: cover;
+  object-position: top;
+  border-radius: 4px;
+  box-shadow: 0 0 0 1px var(--border);
+  background: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+}
+
+.recent-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.recent-name {
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.recent-meta {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.recent-remove {
+  flex: none;
+  color: var(--muted);
+}
+
+.modal .recent-list {
+  margin-top: 0;
+}
+
+/* ---- update notice ---- */
+
+.update-banner {
+  position: fixed;
+  left: 50%;
+  top: calc(var(--topbar-h) + 10px);
+  transform: translateX(-50%);
+  z-index: 150;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 8px 8px 14px;
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  width: max-content;
+  max-width: calc(100% - 24px);
+}
+
+.update-banner > .icon {
+  color: var(--accent);
+  flex: none;
+}
+
+.update-text {
+  font-size: 14px;
+}
+
+/* ---- snapshot ---- */
+
+.snap-preview {
+  fill: rgba(37, 99, 235, 0.08);
+  stroke: #2563eb;
+  stroke-width: 1.5;
+  stroke-dasharray: 6 4;
+  vector-effect: non-scaling-stroke;
+}
+
+.snapshot-preview {
+  display: flex;
+  justify-content: center;
+  background: repeating-conic-gradient(var(--panel-2) 0% 25%, var(--bg) 0% 50%) 50% / 16px 16px;
+  border-radius: 8px;
+  padding: 8px;
+}
+
+.snapshot-preview img {
+  max-width: 100%;
+  max-height: 55vh;
+  box-shadow: var(--shadow);
+}
+
+.compress-result {
+  font-size: 18px;
+  margin: 0 0 8px;
 }
