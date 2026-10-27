@@ -22,8 +22,13 @@ const pdfArgs = (argv) => argv.slice(1).filter((a) => /\.pdf$/i.test(a) && fs.ex
 const readPdf = (p) => ({ name: path.basename(p), data: fs.readFileSync(p) });
 
 function openInWindow(p) {
-  if (win && !win.webContents.isLoading()) win.webContents.send('open-file', readPdf(p));
-  else pending.push(p);
+  if (win && !win.webContents.isLoading()) {
+    win.webContents.send('open-file', readPdf(p));
+    return;
+  }
+  pending.push(p);
+  // On a Mac the app keeps running without windows; a file opened from Finder brings one back.
+  if (!win && app.isReady()) createWindow();
 }
 
 function createWindow() {
@@ -123,7 +128,10 @@ if (!app.requestSingleInstanceLock()) {
       if (!file.startsWith(DIST)) return new Response('Not found', { status: 404 });
       return net.fetch(pathToFileURL(file).toString());
     });
-    Menu.setApplicationMenu(null);
+    // macOS needs its menu bar: copy/paste shortcuts in text fields and Quit come from it.
+    Menu.setApplicationMenu(
+      process.platform === 'darwin' ? Menu.buildFromTemplate([{ role: 'appMenu' }, { role: 'editMenu' }, { role: 'windowMenu' }]) : null,
+    );
     createWindow();
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow();

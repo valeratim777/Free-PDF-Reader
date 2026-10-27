@@ -1,5 +1,6 @@
 # Desktop packages. `npm run dist:win` builds the Windows installer and a
-# portable .exe into release/. On Linux the installer step needs Wine.
+# portable .exe into release/ (on Linux the installer step needs Wine);
+# `npm run dist:mac` builds the macOS disk image and only runs on a Mac.
 appId: io.github.valeratim777.pdfreader
 productName: PDF Reader
 copyright: Copyright © 2026 valeratim777
@@ -40,6 +41,19 @@ nsis:
   artifactName: PDF-Reader-Setup-${version}.exe
 portable:
   artifactName: PDF-Reader-${version}-portable.exe
+mac:
+  icon: build/icon.png
+  category: public.app-category.productivity
+  target:
+    # One app for both Apple Silicon and Intel Macs.
+    - target: dmg
+      arch: [universal]
+  # No Apple Developer ID: the app is ad-hoc signed (Apple Silicon refuses to run
+  # unsigned code) and not notarized, so macOS asks once before the first launch.
+  identity: '-'
+  hardenedRuntime: false
+dmg:
+  artifactName: PDF-Reader-${version}-mac.dmg
 linux:
   icon: build/icon.png
   target: [AppImage]
