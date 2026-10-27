@@ -55,7 +55,10 @@ jobs:
           sleep 20
           kill -0 "$pid"
           kill "$pid"
-          hdiutil detach "$mnt"
+          wait "$pid" || true
+          # Helper processes can hold the image for a moment after the app quits.
+          sleep 5
+          hdiutil detach "$mnt" || hdiutil detach -force "$mnt"
       - uses: actions/upload-artifact@v4
         with:
           name: mac
