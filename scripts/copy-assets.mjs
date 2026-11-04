@@ -29,4 +29,11 @@ for (const f of [
   cpSync(join(fontsSrc, f), join(fontsDst, f));
 }
 cpSync(join(nm, 'dejavu-fonts-ttf', 'LICENSE'), join(fontsDst, 'LICENSE.txt'));
+
+// Neural voices for "Read aloud" (desktop and web): the speech engine runs here,
+// on the device. Only the voices themselves are downloaded, on first use.
+const speechDst = join(pub, 'speech');
+mkdirSync(speechDst, { recursive: true });
+cpSync(join(nm, 'onnxruntime-web', 'dist', 'ort-wasm-simd.wasm'), join(speechDst, 'ort-wasm-simd.wasm'));
+for (const f of ['piper_phonemize.wasm', 'piper_phonemize.data']) cpSync(join(nm, '@diffusionstudio', 'piper-wasm', 'build', f), join(speechDst, f));
 console.log('assets copied');

@@ -1,13 +1,11 @@
-// Printing, exporting pages as images or text, and reading aloud.
+// Printing and exporting pages as images or text.
 import { zipSync } from 'fflate';
 import { store } from '../store';
 import { exportPdf, loadExported, share, suggestedName } from './save';
 import { isNativeApp } from './native';
 import { pageText } from '../text';
-import { busy, dialog, downloadBlob, field, h, icon, iconButton, select, toast } from '../ui/dom';
+import { busy, dialog, downloadBlob, field, h, select, toast } from '../ui/dom';
 import { t } from '../i18n';
-import { Pause, Play, Square } from 'lucide';
-import type { Viewer } from '../viewer/viewer';
 
 async function renderPages(bytes: Uint8Array, pages: number[], dpi: number, mime: string, quality = 0.92): Promise<Blob[]> {
   const pdf = await loadExported(bytes);
@@ -136,78 +134,4 @@ export async function exportText(): Promise<void> {
   } finally {
     busy(false);
   }
-}
-
-// ---- read aloud ----
-
-let speaking: { stop(): void } | null = null;
-
-export function readAloud(viewer: Viewer, host: HTMLElement): void {
-  if (!('speechSynthesis' in window)) {
-    toast(t('speechUnsupported'), 'error');
-    return;
-  }
-  speaking?.stop();
-  const synth = window.speechSynthesis;
-  synth.cancel();
-  let page = viewer.current;
-  let stopped = false;
-  let paused = false;
-  const label = h('span', { style: 'font-size:13px;padding:0 6px;white-space:nowrap' });
-  const pauseBtn = iconButton(Pause, t('pause'), () => {
-    paused = !paused;
-    if (paused) synth.pause();
-    else synth.resume();
-    pauseBtn.replaceChildren(icon(paused ? Play : Pause));
-    pauseBtn.title = paused ? t('resume') : t('pause');
-  });
-  const rate = h('select.zoom-select', { title: t('speed') });
-  for (const r of ['0.75', '1', '1.25', '1.5', '2']) rate.append(new Option(`${r}×`, r, false, r === '1'));
-  const bar = h('div#speechbar', {}, label, pauseBtn, rate, iconButton(Square, t('stop'), () => stop()));
-  host.append(bar);
-  const stop = () => {
-    stopped = true;
-    synth.cancel();
-    bar.remove();
-    speaking = null;
-  };
-  speaking = { stop };
-  const voiceFor = (text: string) => {
-    const lang = /[а-яё]/i.test(text) ? 'ru' : (document.documentElement.lang || 'en').slice(0, 2);
-    return synth.getVoices().find((v) => v.lang.toLowerCase().startsWith(lang)) ?? null;
-  };
-  const speakPage = async () => {
-    if (stopped) return;
-    if (page >= store.state.pages.length) return stop();
-    label.textContent = `${t('page')} ${page + 1}`;
-    viewer.scrollToPage(page, { smooth: true });
-    const text = (await pageText(store.state.pages[page])).text.replace(/\s+/g, ' ').trim();
-    if (!text) {
-      page++;
-      return speakPage();
-    }
-    // Long pages are split into sentences; some engines stop after ~200 words.
-    const chunks = text.match(/[^.!?…]+[.!?…]*\s*/g) ?? [text];
-    let i = 0;
-    const next = () => {
-      if (stopped) return;
-      if (i >= chunks.length) {
-        page++;
-        void speakPage();
-        return;
-      }
-      const u = new SpeechSynthesisUtterance(chunks[i++]);
-      const v = voiceFor(text);
-      if (v) {
-        u.voice = v;
-        u.lang = v.lang;
-      }
-      u.rate = +rate.value;
-      u.onend = next;
-      u.onerror = () => !stopped && next();
-      synth.speak(u);
-    };
-    next();
-  };
-  void speakPage();
 }

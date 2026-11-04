@@ -46,7 +46,8 @@ import { busy, confirmDialog, dialog, downloadBlob, h, icon, keyName, openMenu, 
 import { openOrganizer } from './ui/organizer';
 import { addSource, blankPdfBytes, fileBytes, imagesToPdfBytes, insertBytes, NotPdfError, openBytes, pagesOf, registerAsset } from './features/documents';
 import { canShareFiles, download, exportPdf, save, share, suggestedName } from './features/save';
-import { exportImagesDialog, exportText, printDocument, readAloud } from './features/output';
+import { exportImagesDialog, exportText, printDocument } from './features/output';
+import { readAloud } from './features/readAloud';
 import { aboutDialog, authorDialog, numberingDialog, propertiesDialog, protectDialog, watermarkDialog } from './features/docTools';
 import { addImageAt, insertImage, signatureFlow, stampFlow } from './features/insert';
 import { clearSession, flushSession, loadSession, markRestored, peekSession, scheduleSessionSave, startSession } from './features/session';

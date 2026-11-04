@@ -404,6 +404,16 @@ const en = {
   translateStopped: 'Translation stopped at page {n}: {msg}',
   translateKeepAsk: 'Keep the pages that are already translated?',
   translateKeep: 'Keep',
+  voice: 'Voice',
+  voiceFemale: 'female',
+  voiceMale: 'male',
+  voiceNeural: 'neural',
+  voiceDevice: 'Voice {n}',
+  voiceOnline: 'online',
+  voicePreparing: 'Getting the voice ready…',
+  voiceDownloading: 'Downloading the voice “{name}”: {p}% of {size} MB (only once)',
+  voiceFailed: 'The neural voice could not start ({msg}). A system voice reads instead.',
+  voiceMissing: 'There is no {lang} voice on this device. One can be added in the system speech settings.',
 };
 
 export type Key = keyof typeof en;
@@ -801,6 +811,16 @@ const ru: Record<Key, string> = {
   translateStopped: 'Перевод остановлен на странице {n}: {msg}',
   translateKeepAsk: 'Оставить уже переведённые страницы?',
   translateKeep: 'Оставить',
+  voice: 'Голос',
+  voiceFemale: 'жен.',
+  voiceMale: 'муж.',
+  voiceNeural: 'нейросеть',
+  voiceDevice: 'Голос {n}',
+  voiceOnline: 'онлайн',
+  voicePreparing: 'Подготовка голоса…',
+  voiceDownloading: 'Загрузка голоса «{name}»: {p}% из {size} МБ (только один раз)',
+  voiceFailed: 'Не удалось включить нейросетевой голос ({msg}). Читает системный голос.',
+  voiceMissing: 'На устройстве нет голоса для языка «{lang}». Его можно добавить в системных настройках синтеза речи.',
 };
 
 const tables: Record<string, Record<Key, string>> = { en, ru };
