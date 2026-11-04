@@ -2,9 +2,11 @@
 // window, opens PDFs passed by the system ("Open with", double-click) and asks
 // before closing with unsaved changes.
 const { app, BrowserWindow, Menu, dialog, ipcMain, net, protocol, shell } = require('electron');
+const { spawn } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
+const { downloadChecked } = require('./download.cjs');
 
 const DIST = path.join(__dirname, '..', 'dist');
 const ORIGIN = 'app://pdf-reader';
@@ -95,6 +97,32 @@ function createWindow() {
 
 // The portable .exe sets PORTABLE_EXECUTABLE_FILE; updates then point to the portable download.
 ipcMain.handle('app-info', () => ({ version: app.getVersion(), portable: !!process.env.PORTABLE_EXECUTABLE_FILE, platform: process.platform }));
+
+// Online translation: only this service can be reached this way, without cookies.
+const HTTP_HOSTS = new Set(['translate.googleapis.com']);
+ipcMain.handle('http-get', async (_e, url) => {
+  const u = new URL(String(url));
+  if (u.protocol !== 'https:' || !HTTP_HOSTS.has(u.hostname)) throw new Error('Address not allowed');
+  const res = await net.fetch(u.href, { credentials: 'omit', signal: AbortSignal.timeout(30000) });
+  return { status: res.status, body: await res.text() };
+});
+
+// Updating the installed app (Windows installer version): the new installer is
+// downloaded from the project's releases, checked against the checksum GitHub
+// publishes, and run silently over the installed copy; it then starts the new
+// version. The portable .exe and the Mac app are updated by downloading by hand.
+const RELEASES = 'https://github.com/valeratim777/Free-PDF-Reader/releases/download/';
+ipcMain.handle('install-update', async (e, url, sha256) => {
+  url = String(url);
+  if (process.platform !== 'win32' || process.env.PORTABLE_EXECUTABLE_FILE) throw new Error('not available in this version');
+  if (!url.startsWith(RELEASES) || !/\/PDF-Reader-Setup-[\w.-]+\.exe$/.test(url)) throw new Error('Address not allowed');
+  const file = path.join(app.getPath('temp'), path.basename(new URL(url).pathname));
+  await downloadChecked(net.fetch, url, file, sha256, (f) => e.sender.send('update-progress', f));
+  // Same switches as electron-updater: update in place, no questions, start afterwards.
+  spawn(file, ['--updated', '/S', '--force-run'], { detached: true, stdio: 'ignore' }).unref();
+  setTimeout(() => app.quit(), 300);
+  return true;
+});
 
 ipcMain.handle('pending-files', () => {
   const files = pending.filter((p) => fs.existsSync(p)).map(readPdf);

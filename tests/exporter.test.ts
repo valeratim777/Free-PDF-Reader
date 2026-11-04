@@ -218,6 +218,36 @@ const PNG = Uint8Array.from(
   (c) => c.charCodeAt(0),
 );
 
+describe('translation', () => {
+  it('drops the original text under translated paragraphs and keeps the rest', async () => {
+    const doc = await PDFDocument.create();
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+    const page = doc.addPage([600, 800]);
+    page.drawText('Translate me please', { x: 50, y: 700, size: 12, font });
+    page.drawText('Keep this one', { x: 50, y: 500, size: 12, font });
+    const bytes = await doc.save();
+    // Shared page: the same original page twice; only the translated copy changes.
+    const input = await makeInput(bytes, {
+      pages: [
+        { id: 'p', src: 's1', index: 0, rot: 0 },
+        { id: 'q', src: 's1', index: 0, rot: 0 },
+      ],
+      anns: [
+        { ...base, id: 'c', pageId: 'p', type: 'whiteout', rect: { x1: 48, y1: 695, x2: 170, y2: 712 }, color: '#ffffff', generated: 'translation' },
+        { ...base, id: 't', pageId: 'p', type: 'text', rect: { x1: 50, y1: 697, x2: 200, y2: 712 }, rot: 0, text: 'Переведи меня', font: 'sans', bold: false, size: 12, bg: null, pad: 0, generated: 'translation' },
+        // A whiteout of the user's own does not remove anything.
+        { ...base, id: 'w', pageId: 'q', type: 'whiteout', rect: { x1: 48, y1: 695, x2: 170, y2: 712 }, color: '#ffffff' },
+      ],
+    });
+    const [p1, p2] = await textOf(await buildPdf(input));
+    expect(p1).toContain('Переведи меня');
+    expect(p1).not.toContain('Translate me please');
+    expect(p1).toContain('Keep this one');
+    expect(p2).toContain('Translate me please');
+    expect(p2).toContain('Keep this one');
+  });
+});
+
 describe('redaction', () => {
   it('replaces redacted pages by images and keeps the rest intact', async () => {
     const bytes = await samplePdf({ pages: 2, form: true });

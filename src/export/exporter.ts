@@ -3,6 +3,9 @@
 import {
   BlendMode,
   EncryptedPDFError,
+  PDFArray,
+  PDFRawStream,
+  decodePDFRawStream,
   LineCapStyle,
   PDFCheckBox,
   PDFDict,
@@ -53,6 +56,7 @@ import {
 } from '../geometry';
 import { fontBytes } from '../fonts';
 import { numberLayout, numberText, stampBox, visualFrame } from '../decor';
+import { stripText } from './stripText';
 
 export interface SourceData {
   bytes: Uint8Array;
@@ -495,6 +499,9 @@ export async function buildPdf(input: ExportInput, opts: ExportOptions = {}): Pr
     pg.setRotation(degrees(rotation));
     const anns = state.anns.filter((a) => a.pageId === p.id);
     if (!anns.length && !hasDecor) continue;
+    // A translated page should not keep the original text hidden under the translation.
+    const translated = anns.filter((a) => a.type === 'whiteout' && a.generated === 'translation').map((a) => (a as { rect: Rect }).rect);
+    if (translated.length) removeTextUnder(base, pg, translated);
     pg.translateContent(0, 0); // isolates the original content's graphics state
     for (const a of anns) await drawAnnotation(base, pg, a, res);
     await drawDecorations(pg, info.view, rotation, state, i, pages.length, res);
@@ -543,6 +550,32 @@ export async function buildPdf(input: ExportInput, opts: ExportOptions = {}): Pr
   }
 
   return doc.save({ useObjectStreams: true, updateFieldAppearances: false });
+}
+
+/** Takes the page's own text that starts inside `rects` out of its content (see stripText). */
+function removeTextUnder(doc: PDFDocument, page: PDFPage, rects: Rect[]): void {
+  try {
+    const contents = page.node.get(PDFName.of('Contents'));
+    const items = contents instanceof PDFArray ? contents.asArray() : contents ? [contents] : [];
+    const parts: Uint8Array[] = [];
+    for (const item of items) {
+      const stream = item instanceof PDFRef ? doc.context.lookup(item) : item;
+      if (!(stream instanceof PDFRawStream)) return;
+      parts.push(decodePDFRawStream(stream).decode(), new Uint8Array([10]));
+    }
+    if (!parts.length) return;
+    const all = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
+    let at = 0;
+    for (const p of parts) {
+      all.set(p, at);
+      at += p.length;
+    }
+    const out = stripText(all, rects);
+    // A new stream for this page only: the old one may be shared with other pages.
+    if (out) page.node.set(PDFName.of('Contents'), doc.context.register(doc.context.flateStream(out)));
+  } catch (e) {
+    console.warn('original text kept under the translation', e);
+  }
 }
 
 /** Removes form fields none of whose widgets are on a page any more. */

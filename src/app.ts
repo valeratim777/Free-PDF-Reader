@@ -7,6 +7,7 @@ import {
   FilePlus,
   FileText,
   FileImage,
+  Globe,
   Hash,
   Images,
   Info,
@@ -52,6 +53,7 @@ import { clearSession, flushSession, loadSession, markRestored, peekSession, sch
 import { clearRecent, forgetCurrent, listRecent, notePage, recentBytes, rememberOpened, removeRecent, resumeEntry, type RecentFile } from './features/recent';
 import { takeSnapshot } from './features/snapshot';
 import { compressDialog } from './features/compress';
+import { translateDialog } from './features/translate';
 import { checkForUpdates, isInstalledApp } from './features/update';
 import { clearPages } from './pages';
 import { clearText } from './text';
@@ -741,7 +743,8 @@ export class App {
     if (open) {
       items.push(
         { label: t('closeDoc'), icon: X, action: () => void this.closeDocument() },
-        { section: t('secDocument'), label: t('organize'), icon: LayoutGrid, action: () => this.organize() },
+        { section: t('secDocument'), label: t('translate'), icon: Languages, action: () => void translateDialog(this.viewer.current) },
+        { label: t('organize'), icon: LayoutGrid, action: () => this.organize() },
         {
           label: t('rotatePage'),
           icon: RotateCw,
@@ -776,7 +779,7 @@ export class App {
         label: `${t('language')}: ${
           langSetting() === 'auto' ? `${t('langAuto')} (${LANGS.find((l) => l.code === getLang())?.name})` : LANGS.find((l) => l.code === getLang())?.name
         }`,
-        icon: Languages,
+        icon: Globe,
         action: () => void this.switchLanguage(),
       },
       { section: t('secHelp'), label: t('help'), icon: CircleHelp, hint: '?', action: () => void helpDialog() },

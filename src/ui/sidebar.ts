@@ -179,7 +179,8 @@ export class Sidebar {
     const pages = store.state.pages;
     const order = new Map(pages.map((p, i) => [p.id, i]));
     const anns = store.state.anns
-      .filter((a) => order.has(a.pageId) && a.type !== 'whiteout')
+      // The many text boxes of a translation are not comments.
+      .filter((a) => order.has(a.pageId) && a.type !== 'whiteout' && !a.generated)
       .sort((a, b) => order.get(a.pageId)! - order.get(b.pageId)! || annBBox(b).y2 - annBBox(a).y2);
     if (!anns.length) {
       this.body.replaceChildren(h('div.empty', {}, t('noComments')));

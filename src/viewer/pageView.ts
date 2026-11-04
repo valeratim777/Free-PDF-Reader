@@ -6,6 +6,7 @@ import { rawTextContent } from '../text';
 import { renderAnn, renderNumber, renderWatermark, svg } from '../annotations/render';
 import { visualFrame } from '../decor';
 import { normRect } from '../geometry';
+import { analyzeInk, type Ink } from '../colors';
 import { buildFormLayer, syncFormLayer, type AnnotData } from './forms';
 
 export type Viewport = ReturnType<PDFPageProxy['getViewport']>;
@@ -268,7 +269,7 @@ export class PageView {
    * Reads the rendered page inside `r`: background and text colors, and the
    * typical stroke width relative to `fontSize` (≈0.08 regular, ≈0.18 bold).
    */
-  sampleColors(r: Rect, fontSize = 0): { bg: string; fg: string; stem: number } | null {
+  sampleColors(r: Rect, fontSize = 0): Ink | null {
     if (!this.canvas) return null;
     const ctx = this.canvas.getContext('2d', { willReadFrequently: true });
     if (!ctx) return null;
@@ -284,48 +285,7 @@ export class PageView {
     } catch {
       return null;
     }
-    // Background: the most frequent color; foreground: the color farthest from it.
-    const counts = new Map<number, number>();
-    for (let i = 0; i < data.length; i += 4) {
-      const c = ((data[i] >> 3) << 10) | ((data[i + 1] >> 3) << 5) | (data[i + 2] >> 3);
-      counts.set(c, (counts.get(c) ?? 0) + 1);
-    }
-    let bgKey = 0;
-    let best = -1;
-    for (const [c, n] of counts)
-      if (n > best) {
-        best = n;
-        bgKey = c;
-      }
-    const bg = [((bgKey >> 10) & 31) * 8 + 4, ((bgKey >> 5) & 31) * 8 + 4, (bgKey & 31) * 8 + 4];
-    let fg = [0, 0, 0];
-    let far = -1;
-    for (let i = 0; i < data.length; i += 4) {
-      const d = Math.abs(data[i] - bg[0]) + Math.abs(data[i + 1] - bg[1]) + Math.abs(data[i + 2] - bg[2]);
-      if (d > far) {
-        far = d;
-        fg = [data[i], data[i + 1], data[i + 2]];
-      }
-    }
-    const hex = (c: number[]) => '#' + c.map((v) => Math.min(255, v).toString(16).padStart(2, '0')).join('');
-    // Horizontal runs of "ink" pixels approximate the vertical stem width.
-    const runs: number[] = [];
-    const inkAt = (i: number) => Math.abs(data[i] - bg[0]) + Math.abs(data[i + 1] - bg[1]) + Math.abs(data[i + 2] - bg[2]) > far * 0.5;
-    for (let row = 0; row < h; row++) {
-      let run = 0;
-      for (let col = 0; col < w; col++) {
-        if (inkAt((row * w + col) * 4)) run++;
-        else if (run) {
-          runs.push(run);
-          run = 0;
-        }
-      }
-      if (run) runs.push(run);
-    }
-    runs.sort((a, b) => a - b);
-    const fontPx = fontSize * this.viewport.scale * k;
-    const stem = runs.length > 10 && fontPx > 0 ? runs[Math.floor(runs.length / 2)] / fontPx : 0;
-    return { bg: hex(bg), fg: far < 60 ? '#000000' : hex(fg), stem };
+    return analyzeInk(data, w, h, fontSize * this.viewport.scale * k);
   }
 
   destroy(): void {

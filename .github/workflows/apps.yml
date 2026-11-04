@@ -129,5 +129,10 @@ jobs:
           if gh release view "$tag" > /dev/null 2>&1; then
             gh release upload "$tag" files/* --clobber
           else
-            gh release create "$tag" files/* --title "PDF Reader ${version}" --notes "Windows: PDF-Reader-Setup-${version}.exe (installer, updates an installed copy) or PDF-Reader-${version}-portable.exe (no install). macOS: PDF-Reader-${version}-mac.dmg (Apple Silicon and Intel). Android: PDF-Reader-${version}.apk."
+            # What's new (.github/release-notes.md, if present) and which file is for what.
+            { [ -f .github/release-notes.md ] && cat .github/release-notes.md && echo
+              echo "Windows: PDF-Reader-Setup-${version}.exe (installer, updates an installed copy) or PDF-Reader-${version}-portable.exe (no install). macOS: PDF-Reader-${version}-mac.dmg (Apple Silicon and Intel). Android: PDF-Reader-${version}.apk (installs over the previous version)."
+            } > notes.md
+            # The tag points at the commit these files were built from.
+            gh release create "$tag" files/* --target "$GITHUB_SHA" --title "PDF Reader ${version}" --notes-file notes.md
           fi
