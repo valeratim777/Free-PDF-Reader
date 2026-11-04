@@ -113,6 +113,9 @@ jobs:
 
   release:
     needs: [windows, mac, android]
+    # GitHub's Mac machines are sometimes all busy; a missing Mac build does not hold
+    # back Windows and Android. Re-running the failed Mac job later adds its file.
+    if: ${{ always() && needs.windows.result == 'success' && needs.android.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
