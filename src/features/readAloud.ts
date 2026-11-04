@@ -21,6 +21,16 @@ interface Chunk {
   text: string;
   lang: string;
   rect: Rect;
+  /** What the piece ends: part of a sentence (a long one is cut at commas), a sentence, a paragraph. */
+  end: 'clause' | 'sentence' | 'paragraph';
+}
+
+/** Silence after a piece, seconds: the neural voices are trimmed, so the reader sets the pauses. */
+const PAUSE: Record<Chunk['end'], number> = { clause: 0.12, sentence: 0.35, paragraph: 0.65 };
+
+/** Whether a piece ends a sentence (closing quotes and brackets may follow the mark). */
+export function endsSentence(text: string): boolean {
+  return /[.!?…][\p{Pf}\p{Pe}"'»”’)\]]*$/u.test(text.trim());
 }
 
 const VOICE_KEY = 'pr.voice.';
@@ -112,7 +122,10 @@ async function pageChunks(index: number, docLang: string): Promise<Chunk[]> {
     const letters = (b.text.match(/\p{L}/gu) ?? []).length;
     // Short paragraphs (a heading, a name) say too little about their language.
     const lang = letters >= 30 ? detectLang(b.text, pageLang) : pageLang;
-    for (const text of sentences(b.text)) chunks.push({ page: index, text, lang, rect: b.rect });
+    const parts = sentences(b.text);
+    parts.forEach((text, i) =>
+      chunks.push({ page: index, text, lang, rect: b.rect, end: i === parts.length - 1 ? 'paragraph' : endsSentence(text) ? 'sentence' : 'clause' }),
+    );
   }
   return chunks;
 }
@@ -272,7 +285,7 @@ export function readAloud(viewer: Viewer, host: HTMLElement): void {
         if (next && next.lang === c.lang) void synth(next, v).catch(() => {});
         const { pcm, rate: sampleRate } = await sound;
         if (stopped) return true;
-        await player.play(pcm, sampleRate);
+        await player.play(pcm, sampleRate, PAUSE[c.end] / speed());
         return true;
       } catch (e) {
         if (stopped) return true;

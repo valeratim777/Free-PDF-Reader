@@ -6,6 +6,7 @@ import * as ort from 'onnxruntime-web/wasm';
 import createPiperPhonemize from '@diffusionstudio/piper-wasm/build/piper_phonemize.js';
 import { letterIds, type IdMap } from './letters';
 import { spellNumbers } from './numbers';
+import { polish, type Tone } from './polish';
 
 interface VoiceConfig {
   audio: { sample_rate: number };
@@ -19,7 +20,7 @@ interface VoiceConfig {
 
 export type WorkerRequest =
   | { type: 'prepare'; id: number; assets: string; model: string }
-  | { type: 'speak'; id: number; assets: string; model: string; text: string; speaker?: number; speed: number };
+  | { type: 'speak'; id: number; assets: string; model: string; text: string; speaker?: number; speed: number; pace?: number; tone?: Tone };
 
 export type WorkerReply =
   | { type: 'progress'; id: number; loaded: number; total: number }
@@ -133,12 +134,12 @@ async function speak(r: Extract<WorkerRequest, { type: 'speak' }>): Promise<{ pc
     input: new ort.Tensor('int64', BigInt64Array.from(ids, (n) => BigInt(n)), [1, ids.length]),
     input_lengths: new ort.Tensor('int64', BigInt64Array.from([BigInt(ids.length)]), [1]),
     // A longer length scale means slower speech.
-    scales: new ort.Tensor('float32', Float32Array.from([cfg.inference.noise_scale, cfg.inference.length_scale / r.speed, cfg.inference.noise_w]), [3]),
+    scales: new ort.Tensor('float32', Float32Array.from([cfg.inference.noise_scale, (cfg.inference.length_scale * (r.pace ?? 1)) / r.speed, cfg.inference.noise_w]), [3]),
   };
   if (cfg.num_speakers > 1) feeds.sid = new ort.Tensor('int64', BigInt64Array.from([BigInt(r.speaker ?? 0)]), [1]);
   const out = await session.run(feeds);
-  const data = out.output.data as Float32Array;
-  return { pcm: new Float32Array(data), rate: cfg.audio.sample_rate };
+  const rate = cfg.audio.sample_rate;
+  return { pcm: polish(out.output.data as Float32Array, rate, r.tone), rate };
 }
 
 scope.onmessage = async (e) => {

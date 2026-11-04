@@ -57,7 +57,7 @@ export class NeuralSpeech {
 
   /** Speech for `text` as samples; `speed` 1 is normal. */
   async synth(v: NeuralVoice, text: string, speed: number): Promise<{ pcm: Float32Array; rate: number }> {
-    const r = await this.send({ type: 'speak', model: VOICES_BASE + v.model, text, speaker: v.speaker, speed });
+    const r = await this.send({ type: 'speak', model: VOICES_BASE + v.model, text, speaker: v.speaker, speed, pace: v.pace, tone: { eq: v.eq } });
     if (r.type !== 'audio') throw new Error('no audio');
     return { pcm: r.pcm, rate: r.rate };
   }
@@ -86,17 +86,33 @@ export class PcmPlayer {
   private source: AudioBufferSourceNode | null = null;
   private paused = false;
 
-  private get audio(): AudioContext {
-    this.ctx ??= new AudioContext();
+  /**
+   * Plays at the voice's own sample rate: the browser then converts to the sound
+   * card's rate with its high-quality resampler. A buffer played into a context of
+   * another rate is converted by simple interpolation, which adds a metallic sheen.
+   */
+  private audio(rate: number): AudioContext {
+    if (this.ctx && this.ctx.sampleRate !== rate) {
+      void this.ctx.close();
+      this.ctx = null;
+    }
+    if (!this.ctx) {
+      try {
+        this.ctx = new AudioContext({ sampleRate: rate, latencyHint: 'playback' });
+      } catch {
+        this.ctx = new AudioContext();
+      }
+      if (this.paused) void this.ctx.suspend();
+    }
     return this.ctx;
   }
 
-  /** Resolves when the piece has been played (or stopped). */
-  play(pcm: Float32Array, rate: number): Promise<void> {
-    const ctx = this.audio;
+  /** Resolves when the piece and the `pause` (seconds) after it have played (or on stop). */
+  play(pcm: Float32Array, rate: number, pause = 0): Promise<void> {
+    const ctx = this.audio(rate);
     // A piece that arrives during a pause waits for "resume".
     if (!this.paused) void ctx.resume();
-    const buf = ctx.createBuffer(1, Math.max(1, pcm.length), rate);
+    const buf = ctx.createBuffer(1, Math.max(1, pcm.length + Math.round(pause * rate)), rate);
     buf.copyToChannel(pcm as Float32Array<ArrayBuffer>, 0);
     const src = ctx.createBufferSource();
     src.buffer = buf;

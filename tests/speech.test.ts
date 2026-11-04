@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { detectLang } from '../src/speech/lang';
-import { sentences } from '../src/features/readAloud';
+import { endsSentence, sentences } from '../src/features/readAloud';
 import { NEURAL_VOICES, neuralVoicesFor } from '../src/speech/catalog';
 import { defaultChoice, systemQuality, type VoiceChoice } from '../src/speech/voices';
 import { letterIds } from '../src/speech/letters';
 import { spellNumbers, ukNumber } from '../src/speech/numbers';
+import { EQ_CENTERS, TARGET_DB, eqFilter, highpass, limit, polish, speechLevel, trimSilence } from '../src/speech/polish';
 
 describe('language of a paragraph', () => {
   it('tells Russian from Ukrainian', () => {
@@ -96,5 +97,76 @@ describe('voices that read letters', () => {
     expect(uk.map((v) => v.name)).toEqual(['Тетяна', 'Микита', 'Лада']);
     expect(new Set(uk.map((v) => v.model)).size).toBe(1);
     expect(new Set(uk.map((v) => v.speaker)).size).toBe(3);
+  });
+});
+
+describe('polishing the voice', () => {
+  const rate = 22050;
+  const tone = (freq: number, seconds: number, amp: number) => Float32Array.from({ length: Math.round(rate * seconds) }, (_, i) => amp * Math.sin((2 * Math.PI * freq * i) / rate));
+  const join = (...parts: Float32Array[]) => {
+    const out = new Float32Array(parts.reduce((n, p) => n + p.length, 0));
+    let at = 0;
+    for (const p of parts) {
+      out.set(p, at);
+      at += p.length;
+    }
+    return out;
+  };
+  /** Gain of filter `h` at `freq`, dB. */
+  const response = (h: Float32Array, freq: number) => {
+    let re = 0;
+    let im = 0;
+    h.forEach((v, n) => {
+      re += v * Math.cos((2 * Math.PI * freq * n) / rate);
+      im -= v * Math.sin((2 * Math.PI * freq * n) / rate);
+    });
+    return 20 * Math.log10(Math.hypot(re, im));
+  };
+  const peak = (x: Float32Array) => x.reduce((m, v) => Math.max(m, Math.abs(v)), 0);
+
+  it('trims the silence at the ends, keeping a short margin', () => {
+    const x = join(new Float32Array(rate * 0.3), tone(300, 1, 0.3), new Float32Array(rate * 0.3));
+    const y = trimSilence(x, rate);
+    expect(y.length / rate).toBeGreaterThan(1);
+    expect(y.length / rate).toBeLessThan(1.1);
+    expect(Math.abs(y[0])).toBeLessThan(1e-3);
+    expect(trimSilence(new Float32Array(1000), rate).length).toBe(0);
+  });
+
+  it('shapes the tone as asked', () => {
+    const flat = eqFilter(EQ_CENTERS.map(() => 0), rate);
+    for (const f of [150, 1000, 5000]) expect(Math.abs(response(flat, f))).toBeLessThan(0.3);
+    const eq = EQ_CENTERS.map((c) => (c >= 125 && c <= 200 ? -6 : c === 3150 ? 3 : 0));
+    const h = eqFilter(eq, rate);
+    expect(response(h, 160)).toBeCloseTo(-6, 0);
+    expect(response(h, 3150)).toBeGreaterThan(2);
+    expect(Math.abs(response(h, 800))).toBeLessThan(0.5);
+  });
+
+  it('removes rumble below the voice', () => {
+    const low = highpass(tone(30, 1, 0.5), rate);
+    const voice = highpass(tone(300, 1, 0.5), rate);
+    expect(peak(low.subarray(rate / 2))).toBeLessThan(0.1);
+    expect(peak(voice.subarray(rate / 2))).toBeGreaterThan(0.45);
+  });
+
+  it('brings quiet and loud voices to one level without clipping', () => {
+    for (const amp of [0.01, 0.1, 0.99]) {
+      const y = polish(join(tone(220, 0.5, amp), tone(440, 0.5, amp * 0.3)), rate);
+      expect(Math.abs(speechLevel(y, rate) - TARGET_DB)).toBeLessThan(1.5);
+      expect(peak(y)).toBeLessThanOrEqual(10 ** (-1 / 20) + 1e-6);
+    }
+    expect(polish(new Float32Array(500), rate).length).toBe(0);
+  });
+
+  it('holds peaks below the ceiling', () => {
+    const y = limit(tone(200, 0.2, 2), rate, 0.5);
+    expect(peak(y)).toBeLessThanOrEqual(0.5 + 1e-6);
+  });
+
+  it('knows where sentences end', () => {
+    expect(endsSentence('Это конец.')).toBe(true);
+    expect(endsSentence('«Правда?»')).toBe(true);
+    expect(endsSentence('часть длинного предложения,')).toBe(false);
   });
 });
