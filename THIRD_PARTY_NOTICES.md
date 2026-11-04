@@ -18,8 +18,8 @@ in the built app under `fonts/LICENSE.txt`.
 
 Voices for "Read aloud" are not part of the app: they are downloaded on first use from
 https://huggingface.co/rhasspy/piper-voices (Piper models, MIT). Their recordings:
-Ukrainian Tetiana, Mykyta, Oleksa — ukrainian-tts-datasets, Apache-2.0; Ukrainian Lada —
-CC0; Russian Dmitri, Denis — CC0; English Kristin, John — public domain; Spanish
+Ukrainian Tetiana, Mykyta, Lada — ukrainian_tts (OHF-Voice voice-datasets), CC0;
+Russian Dmitri, Denis — CC0; English Kristin, John — public domain; Spanish
 Sharvard — Sharvard corpus, CC BY 3.0 (University of Edinburgh); Spanish Davefx — CC0.
 
 PDF.js also bundles CMaps, standard font data and WebAssembly decoders (OpenJPEG,

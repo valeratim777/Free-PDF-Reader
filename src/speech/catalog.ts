@@ -21,12 +21,14 @@ export interface NeuralVoice {
   credit: string;
 }
 
+const UK_SHARED = 'uk/uk_UA/ukrainian_tts/medium/uk_UA-ukrainian_tts-medium.onnx';
+
 export const NEURAL_VOICES: NeuralVoice[] = [
-  // Separate high-quality models: clearer than the shared three-voice model (which sounded choppy).
-  { id: 'uk-tetiana-high', lang: 'uk', name: 'Тетяна', female: true, model: 'uk/uk_UA/tetiana/high/uk_UA-tetiana-high.onnx', size: 114, credit: 'ukrainian-tts-datasets, Apache-2.0' },
-  { id: 'uk-mykyta-high', lang: 'uk', name: 'Микита', female: false, model: 'uk/uk_UA/mykyta/high/uk_UA-mykyta-high.onnx', size: 114, credit: 'ukrainian-tts-datasets, Apache-2.0' },
-  { id: 'uk-oleksa-high', lang: 'uk', name: 'Олекса', female: false, model: 'uk/uk_UA/oleksa/high/uk_UA-oleksa-high.onnx', size: 114, credit: 'ukrainian-tts-datasets, Apache-2.0' },
-  { id: 'uk-lada', lang: 'uk', name: 'Лада', female: true, model: 'uk/uk_UA/ukrainian_tts/medium/uk_UA-ukrainian_tts-medium.onnx', speaker: 0, size: 77, credit: 'ukrainian_tts, CC0' },
+  // One model, three voices. It reads letters, not phonemes (see letters.ts). Clearer than the
+  // separate "high" models and several times faster: those could not keep up with reading.
+  { id: 'uk-tetiana', lang: 'uk', name: 'Тетяна', female: true, model: UK_SHARED, speaker: 2, size: 77, credit: 'ukrainian_tts, CC0' },
+  { id: 'uk-mykyta', lang: 'uk', name: 'Микита', female: false, model: UK_SHARED, speaker: 1, size: 77, credit: 'ukrainian_tts, CC0' },
+  { id: 'uk-lada', lang: 'uk', name: 'Лада', female: true, model: UK_SHARED, speaker: 0, size: 77, credit: 'ukrainian_tts, CC0' },
   { id: 'ru-dmitri', lang: 'ru', name: 'Дмитрий', female: false, model: 'ru/ru_RU/dmitri/medium/ru_RU-dmitri-medium.onnx', size: 63, credit: 'OHF-Voice dmitri, CC0' },
   { id: 'ru-denis', lang: 'ru', name: 'Денис', female: false, model: 'ru/ru_RU/denis/medium/ru_RU-denis-medium.onnx', size: 63, credit: 'OHF-Voice denis, CC0' },
   { id: 'en-kristin', lang: 'en', name: 'Kristin', female: true, model: 'en/en_US/kristin/medium/en_US-kristin-medium.onnx', size: 64, credit: 'kristin, public domain' },

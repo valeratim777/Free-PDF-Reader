@@ -4,12 +4,17 @@
 // voice is downloaded once and kept in the browser's cache.
 import * as ort from 'onnxruntime-web/wasm';
 import createPiperPhonemize from '@diffusionstudio/piper-wasm/build/piper_phonemize.js';
+import { letterIds, type IdMap } from './letters';
+import { spellNumbers } from './numbers';
 
 interface VoiceConfig {
   audio: { sample_rate: number };
   espeak: { voice: string };
   inference: { noise_scale: number; length_scale: number; noise_w: number };
   num_speakers: number;
+  /** "espeak" (phonemes) or "text" (the voice reads letters). */
+  phoneme_type?: string;
+  phoneme_id_map: IdMap;
 }
 
 export type WorkerRequest =
@@ -119,7 +124,11 @@ function loadVoice(assets: string, url: string, onProgress?: (loaded: number, to
 
 async function speak(r: Extract<WorkerRequest, { type: 'speak' }>): Promise<{ pcm: Float32Array; rate: number }> {
   const { session, cfg } = await loadVoice(r.assets, r.model);
-  const ids = await phonemeIds(r.assets, r.text, cfg.espeak.voice);
+  // A voice that reads letters skips digits: they are written out for it (eSpeak does this for the others).
+  const ids =
+    cfg.phoneme_type === 'text'
+      ? letterIds(cfg.espeak.voice === 'uk' ? spellNumbers(r.text) : r.text, cfg.phoneme_id_map)
+      : await phonemeIds(r.assets, r.text, cfg.espeak.voice);
   const feeds: Record<string, ort.Tensor> = {
     input: new ort.Tensor('int64', BigInt64Array.from(ids, (n) => BigInt(n)), [1, ids.length]),
     input_lengths: new ort.Tensor('int64', BigInt64Array.from([BigInt(ids.length)]), [1]),
@@ -136,9 +145,9 @@ scope.onmessage = async (e) => {
   const r = e.data;
   try {
     if (r.type === 'prepare') {
-      await loadVoice(r.assets, r.model, (loaded, total) => scope.postMessage({ type: 'progress', id: r.id, loaded, total }));
-      // Warm up eSpeak too, so the first sentence comes quickly.
-      await getPhonemizer(r.assets);
+      const { cfg } = await loadVoice(r.assets, r.model, (loaded, total) => scope.postMessage({ type: 'progress', id: r.id, loaded, total }));
+      // Warm up eSpeak too, so the first sentence comes quickly (a voice that reads letters needs none).
+      if (cfg.phoneme_type !== 'text') await getPhonemizer(r.assets);
       scope.postMessage({ type: 'ready', id: r.id });
     } else {
       const { pcm, rate } = await speak(r);
