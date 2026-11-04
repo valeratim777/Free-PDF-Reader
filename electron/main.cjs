@@ -96,6 +96,15 @@ function createWindow() {
 // The portable .exe sets PORTABLE_EXECUTABLE_FILE; updates then point to the portable download.
 ipcMain.handle('app-info', () => ({ version: app.getVersion(), portable: !!process.env.PORTABLE_EXECUTABLE_FILE, platform: process.platform }));
 
+// Online translation: only this service can be reached this way, without cookies.
+const HTTP_HOSTS = new Set(['translate.googleapis.com']);
+ipcMain.handle('http-get', async (_e, url) => {
+  const u = new URL(String(url));
+  if (u.protocol !== 'https:' || !HTTP_HOSTS.has(u.hostname)) throw new Error('Address not allowed');
+  const res = await net.fetch(u.href, { credentials: 'omit', signal: AbortSignal.timeout(30000) });
+  return { status: res.status, body: await res.text() };
+});
+
 ipcMain.handle('pending-files', () => {
   const files = pending.filter((p) => fs.existsSync(p)).map(readPdf);
   pending = [];

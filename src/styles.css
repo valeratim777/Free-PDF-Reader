@@ -2636,3 +2636,54 @@ kbd {
   font-size: 18px;
   margin: 0 0 8px;
 }
+
+/* ---------- translation ---------- */
+
+.tr-form [hidden] {
+  display: none;
+}
+
+.tr-form .row {
+  flex-wrap: wrap;
+}
+
+.tr-form .row > .field {
+  min-width: 150px;
+}
+
+.tr-note {
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--muted);
+  margin: -4px 0 12px;
+}
+
+.tr-note.tr-online {
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--accent-soft);
+  color: var(--text);
+  margin-top: 0;
+}
+
+.tr-progress-text {
+  font-size: 14px;
+  margin-bottom: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.tr-progress {
+  height: 8px;
+  border-radius: 4px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  overflow: hidden;
+  margin-bottom: 4px;
+}
+
+.tr-progress-fill {
+  width: 0;
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.25s;
+}

@@ -14,6 +14,7 @@ interface DesktopBridge {
   pendingFiles(): Promise<DesktopFile[]>;
   onOpenFile(cb: (f: DesktopFile) => void): void;
   appInfo?(): Promise<{ version: string; portable: boolean; platform: string }>;
+  httpGet?(url: string): Promise<{ status: number; body: string }>;
 }
 
 export function isNativeApp(): boolean {
@@ -35,6 +36,36 @@ export function openExternal(url: string): void {
     return;
   }
   window.open(url, '_blank', 'noopener');
+}
+
+function abortable<T>(p: Promise<T>, signal: AbortSignal): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const stop = () => reject(new DOMException('Aborted', 'AbortError'));
+    if (signal.aborted) return stop();
+    signal.addEventListener('abort', stop, { once: true });
+    p.then(resolve, reject);
+  });
+}
+
+/**
+ * GET request to an outside service (online translation). The apps send it
+ * natively, where the browser's cross-origin rules do not get in the way; the
+ * website uses fetch. No cookies or referrer are sent.
+ */
+export async function httpGet(url: string, signal: AbortSignal): Promise<{ status: number; body: string }> {
+  const desktop = desktopBridge();
+  if (desktop?.httpGet) return abortable(desktop.httpGet(url), signal);
+  if (isNativeApp()) {
+    const { CapacitorHttp } = await import('@capacitor/core');
+    const u = new URL(url);
+    const r = await abortable(
+      CapacitorHttp.get({ url: `${u.origin}${u.pathname}`, params: Object.fromEntries(u.searchParams), responseType: 'text', connectTimeout: 15000, readTimeout: 30000 }),
+      signal,
+    );
+    return { status: r.status, body: typeof r.data === 'string' ? r.data : JSON.stringify(r.data) };
+  }
+  const r = await fetch(url, { signal, credentials: 'omit', referrerPolicy: 'no-referrer' });
+  return { status: r.status, body: await r.text() };
 }
 
 async function toBase64(blob: Blob): Promise<string> {

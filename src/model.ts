@@ -27,6 +27,8 @@ interface AnnBase {
   opacity: number;
   author?: string;
   created: number;
+  /** Set on the text boxes and covers made by "Translate document", so a new translation replaces them. */
+  generated?: 'translation';
 }
 
 export interface InkAnn extends AnnBase {
