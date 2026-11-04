@@ -75,6 +75,10 @@ export function sha256Of(asset: Pick<Asset, 'digest'>): string {
 
 type Install = (onProgress: (fraction: number) => void) => Promise<void>;
 
+// The desktop shell reports progress through one listener, set up once.
+let progressWired = false;
+let progressTo: (fraction: number) => void = () => {};
+
 /** The file for this installation (or the release page) and, where possible, how to install it in place. */
 async function updatePlan(rel: Release): Promise<{ url: string; install: Install | null }> {
   let pattern: RegExp | null = null;
@@ -113,7 +117,11 @@ async function updatePlan(rel: Release): Promise<{ url: string; install: Install
   return {
     url,
     install: async (onProgress) => {
-      desktop!.onUpdateProgress?.(onProgress);
+      progressTo = onProgress;
+      if (!progressWired) {
+        progressWired = true;
+        desktop!.onUpdateProgress?.((f) => progressTo(f));
+      }
       await desktop!.installUpdate!(url, sha256);
     },
   };
@@ -146,6 +154,7 @@ function showBanner(version: string, plan: { url: string; install: Install | nul
     action.disabled = true;
     close.hidden = true;
     text.textContent = t('updateDownloading', { p: 0 });
+    const wasDirty = doc.dirty;
     try {
       // The open document and its edits are kept for "Continue" after the restart.
       if (doc.isOpen) {
@@ -165,6 +174,8 @@ function showBanner(version: string, plan: { url: string; install: Install | nul
       } else text.textContent = t('updateInstalling');
     } catch (e) {
       console.warn('update', e);
+      // Not updated after all: unsaved changes still need saving.
+      doc.dirty = wasDirty;
       toast(t('updateFailed', { msg: String((e as Error)?.message ?? e) }), 'error', 7000);
       download();
     }

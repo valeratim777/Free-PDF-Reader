@@ -1,6 +1,6 @@
 // Signatures, stamps and pictures placed on pages.
 import { store } from '../store';
-import { uid, type Pt, type QuarterTurn } from '../model';
+import { uid, type Asset, type ImageAnn, type Pt, type QuarterTurn } from '../model';
 import { boxFrame, normTurn, rectFromFrame } from '../geometry';
 import { ensureCssFont } from '../fonts';
 import { authorName, stampRect, type Tools } from '../annotations/tools';
@@ -16,28 +16,46 @@ function centeredOrigin(at: Pt, w: number, hh: number, rot: QuarterTurn): Pt {
   return { x: at.x - (w / 2) * cos - (hh / 2) * sin, y: at.y - (w / 2) * sin + (hh / 2) * cos };
 }
 
+/** An image mark `w` points wide, upright on screen and centered on `at`. */
+function imageAnn(pv: PageView, at: Pt, assetId: string, aspect: number, type: 'image' | 'signature', w: number): ImageAnn {
+  const rot = normTurn(pv.rotation);
+  const hh = w / aspect;
+  const o = centeredOrigin(at, w, hh, rot);
+  return {
+    id: uid('a'),
+    pageId: pv.page.id,
+    color: '#000000',
+    opacity: 1,
+    created: Date.now(),
+    author: authorName() || undefined,
+    type,
+    rect: rectFromFrame(o.x, o.y, w, hh, rot),
+    rot,
+    assetId,
+  };
+}
+
+/** Natural size of a picture on the page (96 dpi), at most 240 points wide. */
+function imageWidth(asset: Asset): number {
+  return Math.max(24, Math.min(240, (asset.width * 72) / 96));
+}
+
 function placeImage(tools: Tools, assetId: string, aspect: number, type: 'image' | 'signature', targetW: number): void {
   tools.placeNext((pv: PageView, at: Pt) => {
-    const rot = normTurn(pv.rotation);
-    const w = targetW;
-    const hh = w / aspect;
-    const o = centeredOrigin(at, w, hh, rot);
-    const a = {
-      id: uid('a'),
-      pageId: pv.page.id,
-      color: '#000000',
-      opacity: 1,
-      created: Date.now(),
-      author: authorName() || undefined,
-      type,
-      rect: rectFromFrame(o.x, o.y, w, hh, rot),
-      rot,
-      assetId,
-    };
+    const a = imageAnn(pv, at, assetId, aspect, type, targetW);
     store.addAnn(a);
     tools.setTool('select');
     tools.select(a.id);
   });
+}
+
+/** Puts a picture (e.g. pasted from the clipboard) on the page, centered on `at`, and selects it. */
+export async function addImageAt(tools: Tools, pv: PageView, at: Pt, image: Blob): Promise<void> {
+  const asset = registerAsset(await imageToAsset(image));
+  const a = imageAnn(pv, at, asset.id, asset.width / asset.height, 'image', imageWidth(asset));
+  store.addAnn(a);
+  tools.setTool('select');
+  tools.select(a.id);
 }
 
 export async function insertImage(tools: Tools): Promise<void> {
@@ -45,8 +63,7 @@ export async function insertImage(tools: Tools): Promise<void> {
   if (!file) return tools.setTool('select');
   try {
     const asset = registerAsset(await imageToAsset(file));
-    const w = Math.min(240, (asset.width * 72) / 96);
-    placeImage(tools, asset.id, asset.width / asset.height, 'image', Math.max(24, w));
+    placeImage(tools, asset.id, asset.width / asset.height, 'image', imageWidth(asset));
   } catch (e) {
     toast(String((e as Error).message), 'error');
     tools.setTool('select');

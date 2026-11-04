@@ -42,25 +42,38 @@ import { Search } from './ui/search';
 import { MOD, PropsBar, TOOL_INFO, TopBar, ToolBar, logo } from './ui/toolbar';
 import { helpDialog } from './features/help';
 import { listenForSystemFiles } from './features/native';
-import { busy, confirmDialog, dialog, downloadBlob, h, icon, openMenu, pickFiles, promptDialog, toast, type MenuItem } from './ui/dom';
+import { busy, confirmDialog, dialog, downloadBlob, h, icon, keyName, openMenu, pickFiles, promptDialog, toast, type MenuItem } from './ui/dom';
 import { openOrganizer } from './ui/organizer';
 import { addSource, blankPdfBytes, fileBytes, imagesToPdfBytes, insertBytes, NotPdfError, openBytes, pagesOf, registerAsset } from './features/documents';
 import { canShareFiles, download, exportPdf, save, share, suggestedName } from './features/save';
 import { exportImagesDialog, exportText, printDocument, readAloud } from './features/output';
 import { aboutDialog, authorDialog, numberingDialog, propertiesDialog, protectDialog, watermarkDialog } from './features/docTools';
-import { insertImage, signatureFlow, stampFlow } from './features/insert';
+import { addImageAt, insertImage, signatureFlow, stampFlow } from './features/insert';
 import { clearSession, flushSession, loadSession, markRestored, peekSession, scheduleSessionSave, startSession } from './features/session';
 import { clearRecent, forgetCurrent, listRecent, notePage, recentBytes, rememberOpened, removeRecent, resumeEntry, type RecentFile } from './features/recent';
 import { takeSnapshot } from './features/snapshot';
 import { compressDialog } from './features/compress';
 import { translateDialog } from './features/translate';
 import { checkForUpdates, isInstalledApp } from './features/update';
-import { clearPages } from './pages';
+import { clearPages, pageInfo } from './pages';
+import { annBBox, translateAnn } from './geometry';
+import { uid, type Annotation, type Asset } from './model';
 import { clearText } from './text';
 import { clearThumbs } from './ui/thumbs';
 import type { PageView } from './viewer/pageView';
 
 type InstallPrompt = Event & { prompt(): Promise<void> };
+
+/** Clipboard format that marks our own copied mark (pasted back only while it is still on the clipboard). */
+const MARK_TYPE = 'text/x-pdf-reader-mark';
+
+/** Text of a mark for other programs when it is copied. */
+function markText(a: Annotation): string {
+  if (a.type === 'text' || a.type === 'note') return a.text;
+  if (a.type === 'stamp') return a.label;
+  if ((a.type === 'highlight' || a.type === 'underline' || a.type === 'strike') && a.text) return a.text;
+  return '';
+}
 
 const TOOL_KEYS = new Map<string, Tool>(
   (Object.entries(TOOL_INFO) as [Tool, (typeof TOOL_INFO)[Tool]][]).filter(([, i]) => i.key).map(([tool, i]) => [i.key!, tool]),
@@ -79,6 +92,8 @@ export class App {
   private badgeTimer = 0;
   private dropOverlay!: HTMLElement;
   private installPrompt: InstallPrompt | null = null;
+  /** The mark copied with Ctrl+C / Ctrl+X (with its picture, so it can be pasted into another document). */
+  private clip: { ann: Annotation; asset?: Omit<Asset, 'url'>; token: string; text: string; pastes: number } | null = null;
 
   constructor(private root: HTMLElement) {}
 
@@ -124,6 +139,7 @@ export class App {
     this.wireStore();
     this.wireViewer();
     this.wireKeyboard();
+    this.wireClipboard();
     this.wireDragDrop();
     this.wireLifecycle();
     void this.renderWelcome();
@@ -185,7 +201,8 @@ export class App {
       const target = e.target as HTMLElement;
       const typing = target.matches('input, textarea, select, [contenteditable]');
       const mod = e.ctrlKey || e.metaKey;
-      const k = e.key.toLowerCase();
+      // Works with any keyboard layout (Ctrl+S is Ctrl+"ы" on a Russian one).
+      const k = keyName(e);
       if (mod && k === 'o') {
         e.preventDefault();
         void this.openDialog();
@@ -204,9 +221,9 @@ export class App {
       } else if (!mod && !e.altKey && (e.key === '?' || e.key === 'F1')) {
         e.preventDefault();
         void helpDialog();
-      } else if (!mod && !e.altKey && store.isOpen && e.key.length === 1 && TOOL_KEYS.has(e.key.toUpperCase())) {
+      } else if (!mod && !e.altKey && store.isOpen && /^[a-z]$/.test(k) && TOOL_KEYS.has(k.toUpperCase())) {
         e.preventDefault();
-        void this.chooseTool(TOOL_KEYS.get(e.key.toUpperCase())!);
+        void this.chooseTool(TOOL_KEYS.get(k.toUpperCase())!);
       } else if (mod && k === 'z') {
         e.preventDefault();
         if (e.shiftKey) store.redo();
@@ -259,6 +276,88 @@ export class App {
         this.viewer.scrollToPage(store.state.pages.length - 1);
       }
     });
+  }
+
+  /**
+   * Ctrl+C / Ctrl+X copy or cut the selected mark (selected text is copied by the
+   * browser as usual); Ctrl+V pastes it onto the current page, or puts a picture
+   * from the clipboard there.
+   */
+  private wireClipboard(): void {
+    const skip = (e: Event) => {
+      if (!store.isOpen || document.querySelector('.modal-backdrop, #organizer')) return true;
+      const target = e.target as HTMLElement | null;
+      return !!target?.closest?.('input, textarea, select, [contenteditable]');
+    };
+    const selectedText = () => {
+      const s = window.getSelection();
+      return !!s && !s.isCollapsed && !!s.toString().trim();
+    };
+    const copy = (e: ClipboardEvent, cut: boolean) => {
+      if (skip(e) || selectedText()) return;
+      const a = this.tools.selected ? store.ann(this.tools.selected) : null;
+      if (!a || !e.clipboardData) return;
+      e.preventDefault();
+      const found = 'assetId' in a ? store.assets.get(a.assetId) : undefined;
+      const asset = found ? { id: found.id, mime: found.mime, bytes: found.bytes, width: found.width, height: found.height } : undefined;
+      const token = uid('clip');
+      const text = markText(a);
+      this.clip = { ann: structuredClone(a), asset, token, text, pastes: 0 };
+      e.clipboardData.setData('text/plain', text);
+      e.clipboardData.setData(MARK_TYPE, token);
+      if (cut) this.tools.deleteSelected();
+    };
+    document.addEventListener('copy', (e) => copy(e, false));
+    document.addEventListener('cut', (e) => copy(e, true));
+    document.addEventListener('paste', (e) => {
+      if (skip(e) || !e.clipboardData) return;
+      const dt = e.clipboardData;
+      const c = this.clip;
+      // Our mark, if nothing else has been copied since (browsers without custom formats compare the text).
+      const ours = !!c && (dt.types.includes(MARK_TYPE) ? dt.getData(MARK_TYPE) === c.token : !!c.text && dt.getData('text/plain') === c.text);
+      if (ours) {
+        e.preventDefault();
+        this.pasteMark();
+        return;
+      }
+      const image = Array.from(dt.files).find((f) => f.type.startsWith('image/'));
+      const pv = this.viewer.views.get(store.state.pages[this.viewer.current]?.id ?? '');
+      if (!image || !pv) return;
+      e.preventDefault();
+      // In the middle of the part of the page that is on screen.
+      const r = pv.div.getBoundingClientRect();
+      const s = this.viewer.scroller.getBoundingClientRect();
+      const [left, right] = [Math.max(r.left, s.left), Math.min(r.right, s.right)];
+      const [top, bottom] = [Math.max(r.top, s.top), Math.min(r.bottom, s.bottom)];
+      const x = right > left ? (left + right) / 2 : (r.left + r.right) / 2;
+      const y = bottom > top ? (top + bottom) / 2 : (r.top + r.bottom) / 2;
+      void addImageAt(this.tools, pv, pv.toUser(x, y), image).catch((err) => toast(String((err as Error).message), 'error'));
+    });
+  }
+
+  /** Pastes the copied mark onto the current page: shifted a little on its own page, kept inside the page. */
+  private pasteMark(): void {
+    const c = this.clip;
+    const page = store.state.pages[this.viewer.current];
+    if (!c || !page) return;
+    if (c.asset && !store.assets.has(c.asset.id)) registerAsset(c.asset, c.asset.id);
+    let a: Annotation = { ...structuredClone(c.ann), id: uid('a'), pageId: page.id, created: Date.now() };
+    if (page.id === c.ann.pageId) {
+      c.pastes++;
+      a = translateAnn(a, 12 * c.pastes, -12 * c.pastes);
+    }
+    const v = pageInfo(page).view;
+    const [x1, x2] = [Math.min(v[0], v[2]), Math.max(v[0], v[2])];
+    const [y1, y2] = [Math.min(v[1], v[3]), Math.max(v[1], v[3])];
+    const bb = annBBox(a);
+    let dx = bb.x2 > x2 ? x2 - bb.x2 : 0;
+    if (bb.x1 + dx < x1) dx = x1 - bb.x1;
+    let dy = bb.y2 > y2 ? y2 - bb.y2 : 0;
+    if (bb.y1 + dy < y1) dy = y1 - bb.y1;
+    if (dx || dy) a = translateAnn(a, dx, dy);
+    store.addAnn(a);
+    this.tools.setTool('select');
+    this.tools.select(a.id);
   }
 
   private wireDragDrop(): void {

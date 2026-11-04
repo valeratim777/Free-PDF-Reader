@@ -36,6 +36,7 @@ export async function helpDialog(): Promise<void> {
     [`${MOD}Z · ${MOD}Y`, 'keyUndo'],
     [`${MOD}+ · ${MOD}− · ${MOD}0`, 'keyZoom'],
     [`Delete · ${MOD}D · ← ↑ → ↓`, 'keyDelete'],
+    [`${MOD}C · ${MOD}X · ${MOD}V`, 'keyClipboard'],
     ['Esc', 'keyEscape'],
     ['?', 'keyHelp'],
   ];

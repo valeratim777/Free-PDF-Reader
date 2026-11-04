@@ -293,6 +293,8 @@ export class Tools extends EventTarget {
 
   select(id: string | null): void {
     if (this.selected === id) return;
+    // A selected mark is what Ctrl+C copies, not some text selected earlier.
+    if (id) window.getSelection()?.removeAllRanges();
     this.selected = id;
     this.refreshSelection();
     this.dispatchEvent(new Event('change'));
@@ -438,7 +440,11 @@ export class Tools extends EventTarget {
 
   private hitTest(pv: PageView, p: Pt): Annotation | null {
     const anns = store.annsOf(pv.page.id);
-    for (let i = anns.length - 1; i >= 0; i--) if (hitAnn(anns[i], p, this.tol(pv))) return anns[i];
+    for (let i = anns.length - 1; i >= 0; i--) {
+      // On a translated page the translation is page text, not a mark: pressing on it selects its words.
+      if (anns[i].generated && pv.page.view) continue;
+      if (hitAnn(anns[i], p, this.tol(pv))) return anns[i];
+    }
     return null;
   }
 

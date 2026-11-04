@@ -147,30 +147,47 @@ export function googleEngine(from: string, to: string, http: HttpGet): Engine {
   };
 
   return {
-    async translate(texts, signal) {
-      // Long texts are cut into pieces; pieces are sent together, one per line.
-      const pieces: { owner: number; text: string }[] = [];
-      texts.forEach((t, owner) => {
-        for (const text of splitLong(t.replace(/\s*\n\s*/g, ' ').trim())) pieces.push({ owner, text });
-      });
-      const done: string[] = new Array(pieces.length).fill('');
-      await pool(batches(pieces.map((p) => p.text)), 2, async (group) => {
-        if (signal.aborted) throw abortError();
-        const joined = await request(group.map((i) => pieces[i].text).join('\n'), signal);
-        const lines = joined.split('\n');
-        if (lines.length === group.length) {
-          group.forEach((i, k) => (done[i] = lines[k].trim()));
-          return;
-        }
-        // The service merged or split lines: translate these one by one.
-        for (const i of group) done[i] = (await request(pieces[i].text, signal)).replace(/\s*\n\s*/g, ' ').trim();
-      });
-      const out = texts.map(() => [] as string[]);
-      pieces.forEach((p, i) => out[p.owner].push(done[i]));
-      return out.map((parts) => parts.join(' ').trim());
+    async translate(texts, outer) {
+      // One failed request stops the others too.
+      const ctrl = new AbortController();
+      const stop = () => ctrl.abort();
+      outer.addEventListener('abort', stop, { once: true });
+      if (outer.aborted) stop();
+      const signal = ctrl.signal;
+      try {
+        return await translateAll(texts, signal);
+      } catch (e) {
+        stop();
+        throw outer.aborted ? abortError() : e;
+      } finally {
+        outer.removeEventListener('abort', stop);
+      }
     },
     dispose() {},
   };
+
+  async function translateAll(texts: string[], signal: AbortSignal): Promise<string[]> {
+    // Long texts are cut into pieces; pieces are sent together, one per line.
+    const pieces: { owner: number; text: string }[] = [];
+    texts.forEach((t, owner) => {
+      for (const text of splitLong(t.replace(/\s*\n\s*/g, ' ').trim())) pieces.push({ owner, text });
+    });
+    const done: string[] = new Array(pieces.length).fill('');
+    await pool(batches(pieces.map((p) => p.text)), 2, async (group) => {
+      if (signal.aborted) throw abortError();
+      const joined = await request(group.map((i) => pieces[i].text).join('\n'), signal);
+      const lines = joined.split('\n');
+      if (lines.length === group.length) {
+        group.forEach((i, k) => (done[i] = lines[k].trim()));
+        return;
+      }
+      // The service merged or split lines: translate these one by one.
+      for (const i of group) done[i] = (await request(pieces[i].text, signal)).replace(/\s*\n\s*/g, ' ').trim();
+    });
+    const out = texts.map(() => [] as string[]);
+    pieces.forEach((p, i) => out[p.owner].push(done[i]));
+    return out.map((parts) => parts.join(' ').trim());
+  }
 }
 
 // ---------------- Translator built into Chrome ----------------

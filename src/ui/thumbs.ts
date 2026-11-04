@@ -1,6 +1,6 @@
 // Small page previews for the sidebar and the page organizer.
 import type { DocPage } from '../model';
-import { pdfPage, totalRotation } from '../pages';
+import { pdfPage, shownPage, totalRotation } from '../pages';
 
 const cache = new Map<string, HTMLCanvasElement>();
 const queue: (() => Promise<void>)[] = [];
@@ -21,7 +21,8 @@ function pump(): void {
 /** Draws a thumbnail of `page` into `target` (fit to `width` × `height` CSS px). */
 export function drawThumb(page: DocPage, target: HTMLCanvasElement, width: number): Promise<void> {
   const rotation = totalRotation(page);
-  const key = `${page.src}:${page.index}:${rotation}:${width}`;
+  const shown = shownPage(page);
+  const key = `${shown.src}:${shown.index}:${rotation}:${width}`;
   const hit = cache.get(key);
   if (hit) {
     copy(hit, target);
@@ -30,7 +31,7 @@ export function drawThumb(page: DocPage, target: HTMLCanvasElement, width: numbe
   return new Promise((resolve) => {
     queue.push(async () => {
       try {
-        const p = await pdfPage(page.src, page.index);
+        const p = await pdfPage(shown.src, shown.index);
         const base = p.getViewport({ scale: 1, rotation });
         const dpr = Math.min(2, window.devicePixelRatio || 1);
         const scale = (width / base.width) * dpr;

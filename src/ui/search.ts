@@ -1,10 +1,18 @@
 import { store } from '../store';
 import { t } from '../i18n';
 import { pageText, type PageText } from '../text';
+import { shownPage } from '../pages';
+import type { DocPage } from '../model';
 import type { Viewer } from '../viewer/viewer';
 import type { PageView } from '../viewer/pageView';
 import { CaseSensitive, ChevronDown, ChevronUp, List, WholeWord, X } from 'lucide';
 import { h, icon, iconButton } from './dom';
+
+/** Cache key of a page's text as shown (translated pages have their own). */
+function textKey(p: DocPage): string {
+  const s = shownPage(p);
+  return `${s.src}:${s.index}`;
+}
 
 interface Match {
   pageId: string;
@@ -175,10 +183,10 @@ export class Search {
     // Start at the current page so the first hit is close to the reader.
     for (let k = 0; k < pages.length; k++) {
       const p = pages[k];
-      let pt = this.texts.get(`${p.src}:${p.index}`);
+      let pt = this.texts.get(textKey(p));
       if (!pt) {
         pt = await pageText(p);
-        this.texts.set(`${p.src}:${p.index}`, pt);
+        this.texts.set(textKey(p), pt);
       }
       if (id !== this.runId) return;
       const hay = cs ? pt.text : pt.text.toLowerCase();
@@ -252,7 +260,7 @@ export class Search {
 
   private snippet(m: Match): (Node | string)[] {
     const pg = store.page(m.pageId);
-    const text = pg ? this.texts.get(`${pg.src}:${pg.index}`)?.text ?? '' : '';
+    const text = pg ? this.texts.get(textKey(pg))?.text ?? '' : '';
     let a = Math.max(0, m.start - 40);
     let b = Math.min(text.length, m.end + 70);
     // Start and end on word boundaries so the context reads naturally.
@@ -317,7 +325,7 @@ export class Search {
   paint(pv: PageView): void {
     pv.searchDiv.replaceChildren();
     if (!this.isOpen || !this.matches.length || !pv.textReady) return;
-    const pt = this.texts.get(`${pv.page.src}:${pv.page.index}`);
+    const pt = this.texts.get(textKey(pv.page));
     if (!pt) return;
     const divs = pv.textDivs;
     const pageRect = pv.div.getBoundingClientRect();

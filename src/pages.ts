@@ -64,6 +64,11 @@ export function pageInfo(p: Pick<DocPage, 'src' | 'index'>): PageInfo {
   return i;
 }
 
+/** The page whose look and text are shown: the translated version when there is one. */
+export function shownPage(p: Pick<DocPage, 'src' | 'index'> & { view?: DocPage['view'] }): { src: string; index: number } {
+  return p.view && store.sources.has(p.view.src) ? p.view : { src: p.src, index: p.index };
+}
+
 /** Total clockwise rotation used for display. */
 export function totalRotation(p: DocPage): number {
   return (pageInfo(p).rotate + p.rot) % 360;
