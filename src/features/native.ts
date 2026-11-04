@@ -15,6 +15,8 @@ interface DesktopBridge {
   onOpenFile(cb: (f: DesktopFile) => void): void;
   appInfo?(): Promise<{ version: string; portable: boolean; platform: string }>;
   httpGet?(url: string): Promise<{ status: number; body: string }>;
+  installUpdate?(url: string, sha256: string): Promise<boolean>;
+  onUpdateProgress?(cb: (fraction: number) => void): void;
 }
 
 export function isNativeApp(): boolean {
