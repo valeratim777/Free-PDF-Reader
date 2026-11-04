@@ -4,17 +4,18 @@
 // font, color and size; one undoable step) or saved as a text file.
 import { store } from '../store';
 import { getLang, t } from '../i18n';
-import { dialog, downloadBlob, field, h, select, toast } from '../ui/dom';
+import { busy, dialog, downloadBlob, field, h, select, toast } from '../ui/dom';
 import { rawTextContent } from '../text';
 import { pageInfo, pdfPage } from '../pages';
 import { ensureCssFont, measureLines } from '../fonts';
 import { analyzeInk } from '../colors';
 import { inflate, rectFromFrame } from '../geometry';
-import { uid, type Annotation, type CoverAnn, type DocPage, type FontKey, type TextAnn } from '../model';
+import { emptyState, uid, type Annotation, type CoverAnn, type DocPage, type FontKey, type TextAnn } from '../model';
 import { fitText, isTranslatable, pageBlocks, placeText, roomFor, type TextBlock, type TextItemIn, type TextStyleIn } from '../translate/layout';
 import { deviceAvailable, deviceEngine, detectLanguage, googleEngine, TranslateError, type Engine, type EngineId } from '../translate/engines';
 import { deviceCode, fontFor, pdfWritable, sortedLangs } from '../translate/languages';
 import { httpGet } from './native';
+import { addSource } from './documents';
 import { forgetCurrent } from './recent';
 import { suggestedName } from './save';
 
@@ -232,7 +233,9 @@ function errorText(e: unknown): string {
 async function sampleText(pages: number[]): Promise<string> {
   let s = '';
   for (const i of pages.slice(0, 5)) {
-    const raw = (await rawTextContent(store.state.pages[i])) as { items: TextItemIn[] };
+    const p = store.state.pages[i];
+    // Always the original text, also on pages translated before.
+    const raw = (await rawTextContent({ src: p.src, index: p.index })) as { items: TextItemIn[] };
     s += ' ' + raw.items.map((it) => it.str ?? '').join(' ');
     if (s.length > 1500) break;
   }
@@ -298,7 +301,11 @@ async function run(job: Job): Promise<void> {
 
 async function translatePage(index: number, engine: Engine, wantLook: boolean, signal: AbortSignal): Promise<PageResult> {
   const page = store.state.pages[index];
-  const raw = (await rawTextContent(page)) as { items: TextItemIn[]; styles?: Record<string, TextStyleIn & { fontFamily?: string }> };
+  // The original text, also when the page was translated before (no translation of a translation).
+  const raw = (await rawTextContent({ src: page.src, index: page.index })) as {
+    items: TextItemIn[];
+    styles?: Record<string, TextStyleIn & { fontFamily?: string }>;
+  };
   const styles = raw.styles ?? {};
   const blocks = pageBlocks(raw.items, styles);
   const todo = blocks.filter((b) => isTranslatable(b.text));
@@ -419,22 +426,48 @@ async function applyOnPages(all: PageResult[], to: string): Promise<void> {
     return;
   }
   const pageIds = new Set(results.map((r) => r.page.id));
+  // All covers first, so no paragraph's cover hides the translation of its neighbor.
+  const added: Annotation[] = [...covers, ...texts];
+  const translatedIds = [...new Set(texts.map((a) => a.pageId))];
+  const name = translatedName(to);
+  // The translated pages written out as a PDF of their own, exactly as a save makes
+  // them. The screen shows these, so the translation is real text: it can be selected,
+  // copied, searched and read aloud. Saving still starts from the original pages.
+  let view: { id: string } | null = null;
+  busy(true, t('translating'));
+  try {
+    const { buildPdf } = await import('../export/exporter');
+    const pages = translatedIds.map((id) => {
+      const p = store.page(id)!;
+      return { id, src: p.src, index: p.index, rot: 0 as const };
+    });
+    const bytes = await buildPdf(
+      { state: { ...emptyState(), pages, anns: added }, sources: store.sources, primary: null, assets: store.assets, pageInfo: (p) => pageInfo(p) },
+      { producer: 'PDF Reader' },
+    );
+    view = await addSource(bytes, name);
+  } catch (e) {
+    // The translation is still shown, drawn over the original page.
+    console.warn('translated pages', e);
+  } finally {
+    busy(false);
+  }
   // The original file stays as it is: saving writes a new one.
-  store.fileName = translatedName(to);
+  store.fileName = name;
   store.fileHandle = null;
   forgetCurrent();
-  const added: Annotation[] = [...covers, ...texts];
-  store.commit(
-    'anns',
-    (s) => {
-      s.anns = s.anns.filter((a) => !(a.generated === 'translation' && pageIds.has(a.pageId)));
-      // All covers first, so no paragraph's cover hides the translation of its neighbor.
-      s.anns.push(...added);
-    },
-    [...pageIds],
-  );
-  const pages = new Set(texts.map((a) => a.pageId)).size;
-  toast(t('translateDone', { n: count, p: pages }), 'success', 8000);
+  store.commit('pages', (s) => {
+    s.anns = s.anns.filter((a) => !(a.generated === 'translation' && pageIds.has(a.pageId)));
+    s.anns.push(...added);
+    s.pages = s.pages.map((p) => {
+      if (!pageIds.has(p.id)) return p;
+      const { view: _old, ...rest } = p;
+      void _old;
+      const k = translatedIds.indexOf(p.id);
+      return view && k >= 0 ? { ...rest, view: { src: view.id, index: k } } : rest;
+    });
+  });
+  toast(t('translateDone', { n: count, p: translatedIds.length }), 'success', 8000);
 }
 
 function saveText(results: PageResult[], to: string): void {

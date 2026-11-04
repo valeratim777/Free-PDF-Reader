@@ -116,6 +116,12 @@ export interface DocPage {
   index: number;
   /** Rotation added by the user on top of the page's own /Rotate. */
   rot: QuarterTurn;
+  /**
+   * A translated page is shown from this page of another source: the original with
+   * the translation written in (the same file a save produces). Its text is what the
+   * reader selects, copies, searches and hears. Saving still starts from `src`/`index`.
+   */
+  view?: { src: string; index: number };
 }
 
 export type FormValue = string | string[];

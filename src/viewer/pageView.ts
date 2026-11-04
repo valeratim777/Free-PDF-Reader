@@ -1,7 +1,7 @@
 import { pdfjs, type PDFPageProxy } from '../pdfjs';
 import type { DocPage, Pt, Rect } from '../model';
 import { store } from '../store';
-import { pageInfo, pageProxy, totalRotation } from '../pages';
+import { pageInfo, pageProxy, shownPage, totalRotation } from '../pages';
 import { rawTextContent } from '../text';
 import { renderAnn, renderNumber, renderWatermark, svg } from '../annotations/render';
 import { visualFrame } from '../decor';
@@ -63,8 +63,9 @@ export class PageView {
     this.div.append(loader, this.textDiv, this.svgEl, this.searchDiv, this.formDiv, this.captureDiv, this.uiDiv);
   }
 
+  /** The page as drawn (for a translated page, its translated version). */
   get proxy(): PDFPageProxy {
-    return pageProxy(this.page);
+    return pageProxy(shownPage(this.page));
   }
 
   get rotation(): number {
@@ -77,7 +78,8 @@ export class PageView {
 
   /** Updates size for a new scale or page rotation. Cheap; rendering happens later. */
   update(page: DocPage, scale: number): void {
-    const rotChanged = page.rot !== this.page.rot;
+    // A new rotation, or a translation added or undone, needs a fresh picture.
+    const rotChanged = page.rot !== this.page.rot || shownPage(page).src !== shownPage(this.page).src;
     this.page = page;
     if (!rotChanged && scale === this.scale && this.viewport) return;
     this.scale = scale;
@@ -177,7 +179,8 @@ export class PageView {
   private async loadAnnots(): Promise<void> {
     if (!this.annots) {
       try {
-        this.annots = (await this.proxy.getAnnotations({ intent: 'display' })) as AnnotData[];
+        // Links and form fields come from the original page, which is what gets saved.
+        this.annots = (await pageProxy(this.page).getAnnotations({ intent: 'display' })) as AnnotData[];
       } catch {
         this.annots = [];
       }
@@ -223,6 +226,8 @@ export class PageView {
     const nodes: SVGElement[] = [];
     for (const a of store.annsOf(this.page.id)) {
       if (a.id === this.hiddenAnn) continue;
+      // Already part of the translated version the page is drawn from.
+      if (a.generated && this.page.view) continue;
       nodes.push(renderAnn(a, store.assets));
     }
     const { watermark, numbering } = store.state;

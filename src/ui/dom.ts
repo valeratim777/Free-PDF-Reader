@@ -41,6 +41,19 @@ export function iconButton(node: IconNode, label: string, onclick: (e: MouseEven
   return b;
 }
 
+/**
+ * The key pressed as a lowercase Latin letter or digit, whatever the keyboard
+ * layout: with a Russian layout Ctrl+S arrives as Ctrl+"ы", and the physical key
+ * says it is S. Other keys ("?", "+", "Escape"…) come as they are.
+ */
+export function keyName(e: KeyboardEvent): string {
+  const k = e.key ?? '';
+  if (/^[a-z0-9]$/i.test(k)) return k.toLowerCase();
+  const m = /^(?:Key([A-Z])|Digit([0-9]))$/.exec(e.code ?? '');
+  if (m && k.length === 1) return (m[1] ?? m[2]).toLowerCase();
+  return k.toLowerCase();
+}
+
 // ---- toasts ----
 
 let toastHost: HTMLElement | null = null;

@@ -1,6 +1,6 @@
 // Cached text content of pages (used by search, read-aloud and text export).
 import type { DocPage } from './model';
-import { pdfPage } from './pages';
+import { pdfPage, shownPage } from './pages';
 
 export interface TextItemLite {
   str: string;
@@ -32,7 +32,11 @@ function build(raw: RawContent): PageText {
   return { items, text, offsets };
 }
 
-function load(p: Pick<DocPage, 'src' | 'index'>) {
+type PageRef = Pick<DocPage, 'src' | 'index'> & { view?: DocPage['view'] };
+
+/** Text of the page as shown (for a translated page, the translation). */
+function load(page: PageRef) {
+  const p = shownPage(page);
   const k = `${p.src}:${p.index}`;
   let c = cache.get(k);
   if (!c) {
@@ -45,12 +49,12 @@ function load(p: Pick<DocPage, 'src' | 'index'>) {
   return c;
 }
 
-export async function pageText(p: Pick<DocPage, 'src' | 'index'>): Promise<PageText> {
+export async function pageText(p: PageRef): Promise<PageText> {
   return (await load(p)).page;
 }
 
 /** The raw pdf.js text content (for building a text layer). */
-export async function rawTextContent(p: Pick<DocPage, 'src' | 'index'>): Promise<RawContent> {
+export async function rawTextContent(p: PageRef): Promise<RawContent> {
   return (await load(p)).raw;
 }
 

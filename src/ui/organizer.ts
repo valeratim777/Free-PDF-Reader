@@ -6,7 +6,7 @@ import { t } from '../i18n';
 import { uid, type DocPage, type QuarterTurn } from '../model';
 import { visualSize } from '../pages';
 import { drawThumb } from './thumbs';
-import { busy, dialog, downloadBlob, field, h, icon, iconButton, pickFiles, select, toast } from './dom';
+import { busy, dialog, downloadBlob, field, h, icon, iconButton, keyName, pickFiles, select, toast } from './dom';
 import { blankPdfBytes, fileBytes, imagesToPdfBytes, insertBytes } from '../features/documents';
 import { exportPdf, suggestedName } from '../features/save';
 import { Check, Copy, FileDown, FilePlus, Files, RotateCcw, RotateCw, Scissors, Trash2, X } from 'lucide';
@@ -401,7 +401,7 @@ export function openOrganizer(onClose: (focusIndex: number) => void, startIndex 
     if (document.querySelector('.modal-backdrop')) return;
     if (e.key === 'Escape') close();
     else if ((e.key === 'Delete' || e.key === 'Backspace') && !(e.target instanceof HTMLInputElement)) remove();
-    else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
+    else if ((e.ctrlKey || e.metaKey) && keyName(e) === 'a') {
       e.preventDefault();
       store.state.pages.forEach((p) => selected.add(p.id));
       render();
