@@ -15,7 +15,7 @@
     "dist:win": "npm run build && electron-builder --win --x64",
     "dist:linux": "npm run build && electron-builder --linux",
     "dist:mac": "npm run build && electron-builder --mac",
-    "android": "npm run build && cap sync android",
+    "android": "npm run build && cap sync android && node scripts/trim-android.mjs",
     "apk": "npm run android && cd android && ./gradlew assembleRelease"
   },
   "dependencies": {
@@ -26,8 +26,10 @@
     "@capacitor/core": "^8.5.3",
     "@capacitor/filesystem": "^8.1.5",
     "@capacitor/share": "^8.0.3",
+    "@diffusionstudio/piper-wasm": "1.0.0",
     "fflate": "^0.8.3",
     "lucide": "^1.61.0",
+    "onnxruntime-web": "1.18.0",
     "pdfjs-dist": "^6.4.299"
   },
   "devDependencies": {

@@ -79,6 +79,7 @@ jobs:
       - run: npm ci
       - run: npm run build
       - run: npx cap sync android
+      - run: node scripts/trim-android.mjs
       - run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;36.0.0" > /dev/null
       # Every version must be signed with the same key, otherwise Android will not
       # install it over the previous one. The key lives in the ANDROID_KEYSTORE secret

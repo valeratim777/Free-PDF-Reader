@@ -2687,3 +2687,47 @@ kbd {
   background: var(--accent);
   transition: width 0.25s;
 }
+
+/* ---------- read aloud ---------- */
+
+#speechbar {
+  max-width: calc(100% - 24px);
+}
+
+.speech-label {
+  font-size: 13px;
+  padding: 0 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 340px;
+  font-variant-numeric: tabular-nums;
+}
+
+.speech-voice {
+  max-width: 220px;
+}
+
+/* The paragraph being read. */
+.read-mark {
+  position: absolute;
+  pointer-events: none;
+  border-radius: 4px;
+  background: rgba(250, 204, 21, 0.22);
+  box-shadow: 0 0 0 1px rgba(234, 179, 8, 0.45);
+  transition:
+    top 0.2s,
+    left 0.2s,
+    width 0.2s,
+    height 0.2s;
+}
+
+@media (max-width: 760px) {
+  .speech-label {
+    max-width: 120px;
+  }
+
+  .speech-voice {
+    max-width: 120px;
+  }
+}
