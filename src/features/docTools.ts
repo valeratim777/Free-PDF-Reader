@@ -231,6 +231,11 @@ export async function aboutDialog(): Promise<void> {
         lib('DejaVu Fonts', 'Bitstream Vera / Public Domain', 'https://dejavu-fonts.github.io/'),
         lib('Lucide icons', 'ISC', 'https://lucide.dev'),
         lib('fflate', 'MIT', 'https://github.com/101arrowz/fflate'),
+        // "Read aloud" on computers and in the browser.
+        lib('ONNX Runtime Web (Microsoft)', 'MIT', 'https://github.com/microsoft/onnxruntime'),
+        lib('Piper', 'MIT', 'https://github.com/rhasspy/piper'),
+        lib('eSpeak NG', 'GPL-3.0', 'https://github.com/rhasspy/espeak-ng'),
+        lib('Piper voices', 'CC0 / Public Domain / CC BY 3.0', 'https://huggingface.co/rhasspy/piper-voices'),
       ),
     ),
     actions: [{ label: t('ok'), value: true, primary: true }],
