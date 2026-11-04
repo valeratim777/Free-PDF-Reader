@@ -354,6 +354,28 @@ describe('Google Translate', () => {
     expect(((await caught) as TranslateError).code).toBe('offline');
   });
 
+  it('stops the other requests when one fails', async () => {
+    let aborted = 0;
+    let calls = 0;
+    const http: HttpGet = (url, signal) => {
+      calls++;
+      if (calls === 1) return Promise.resolve({ status: 400, body: '' });
+      return new Promise((_, reject) =>
+        signal.addEventListener('abort', () => {
+          aborted++;
+          reject(new DOMException('Aborted', 'AbortError'));
+        }),
+      );
+    };
+    const big = 'x'.repeat(3000);
+    const err = await googleEngine('auto', 'ru', http)
+      .translate([big, big, big], new AbortController().signal)
+      .catch((e) => e);
+    expect((err as TranslateError).code).toBe('service');
+    expect(aborted).toBe(1);
+    expect(calls).toBe(2);
+  });
+
   it('stops when cancelled', async () => {
     const ctrl = new AbortController();
     const slow: HttpGet = (_url, signal) =>

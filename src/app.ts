@@ -327,8 +327,10 @@ export class App {
       // In the middle of the part of the page that is on screen.
       const r = pv.div.getBoundingClientRect();
       const s = this.viewer.scroller.getBoundingClientRect();
-      const x = (Math.max(r.left, s.left) + Math.min(r.right, s.right)) / 2;
-      const y = (Math.max(r.top, s.top) + Math.min(r.bottom, s.bottom)) / 2;
+      const [left, right] = [Math.max(r.left, s.left), Math.min(r.right, s.right)];
+      const [top, bottom] = [Math.max(r.top, s.top), Math.min(r.bottom, s.bottom)];
+      const x = right > left ? (left + right) / 2 : (r.left + r.right) / 2;
+      const y = bottom > top ? (top + bottom) / 2 : (r.top + r.bottom) / 2;
       void addImageAt(this.tools, pv, pv.toUser(x, y), image).catch((err) => toast(String((err as Error).message), 'error'));
     });
   }
