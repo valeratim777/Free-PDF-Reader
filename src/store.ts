@@ -38,6 +38,8 @@ export class Store extends EventTarget {
   primary: string | null = null;
   fileName = '';
   fileHandle: FileSystemFileHandle | null = null;
+  /** Android: the document the file came from, and whether "Save" may write back into it. */
+  nativeDoc: { uri: string; writable: boolean } | null = null;
   protection: Protection | null = null;
   dirty = false;
   private transientBase: DocState | null = null;
@@ -57,6 +59,7 @@ export class Store extends EventTarget {
     this.primary = null;
     this.fileName = '';
     this.fileHandle = null;
+    this.nativeDoc = null;
     this.protection = null;
     this.dirty = false;
     this.transientBase = null;

@@ -7,7 +7,8 @@ import type { Tools } from '../annotations/tools';
 import { annBBox } from '../geometry';
 import { drawThumb } from './thumbs';
 import { h, icon } from './dom';
-import { Trash2 } from 'lucide';
+import { Bookmark, Trash2, X } from 'lucide';
+import { bookmarkedPages, toggleBookmark } from '../features/bookmarks';
 
 type Tab = 'thumbs' | 'outline' | 'comments';
 
@@ -144,8 +145,45 @@ export class Sidebar {
       this.outlineCache = { src: primary, nodes };
     }
     if (this.tab !== 'outline') return;
+    // The reader's own bookmarks first, then the document's table of contents.
+    const marks = bookmarkedPages();
+    const mine = marks.length
+      ? h(
+          'div.my-bookmarks',
+          {},
+          h('div.side-section', {}, t('myBookmarks')),
+          ...marks.map((i) =>
+            h(
+              'div.my-bookmark',
+              {},
+              h(
+                'button.outline-item',
+                { type: 'button', onclick: () => (this.viewer.scrollToPage(i), this.closeOnMobile()) },
+                icon(Bookmark, 16),
+                ` ${t('page')} ${i + 1}`,
+              ),
+              h(
+                'button.icon-btn',
+                {
+                  type: 'button',
+                  title: t('bookmarkRemove'),
+                  'aria-label': t('bookmarkRemove'),
+                  onclick: () => {
+                    toggleBookmark(i);
+                    this.dispatchBookmarks();
+                    void this.renderOutline();
+                  },
+                },
+                icon(X, 14),
+              ),
+            ),
+          ),
+          nodes.length ? h('div.side-section', {}, t('outline')) : null,
+        )
+      : null;
     if (!nodes.length) {
-      this.body.replaceChildren(h('div.empty', {}, t('noOutline')));
+      if (mine) this.body.replaceChildren(mine);
+      else this.body.replaceChildren(h('div.empty', {}, t('noOutline')), h('div.empty', {}, t('bookmarkHint')));
       return;
     }
     const build = (list: OutlineNode[]): HTMLElement =>
@@ -172,7 +210,19 @@ export class Sidebar {
           ),
         ),
       );
-    this.body.replaceChildren(build(nodes));
+    this.body.replaceChildren(...(mine ? [mine] : []), build(nodes));
+  }
+
+  /** Lets the app redraw the bookmark ribbons on the pages. */
+  private dispatchBookmarks(): void {
+    this.el.dispatchEvent(new Event('bookmarks', { bubbles: true }));
+  }
+
+  /** Opens the bookmarks tab. */
+  showBookmarks(): void {
+    this.tab = 'outline';
+    this.toggle(true);
+    this.render();
   }
 
   private renderComments(): void {

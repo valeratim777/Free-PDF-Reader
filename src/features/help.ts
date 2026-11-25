@@ -40,7 +40,18 @@ export async function helpDialog(): Promise<void> {
     ['Esc', 'keyEscape'],
     ['?', 'keyHelp'],
   ];
-  const gestures: Key[] = ['gestureScroll', 'gesturePinch', 'gestureSelectText', 'gestureEdit', 'gestureMovePage'];
+  const gestures: Key[] = [
+    'gestureScroll',
+    'gesturePinch',
+    'gestureDoubleTap',
+    'gestureSwipe',
+    'gestureTapBars',
+    'gestureBack',
+    'gestureSelectText',
+    'gestureEdit',
+    'gestureRotate',
+    'gestureMovePage',
+  ];
 
   await dialog({
     title: t('helpTitle'),

@@ -92,6 +92,16 @@ export interface DialogOptions<T> {
 }
 
 const stack: HTMLElement[] = [];
+const closers = new Map<HTMLElement, () => void>();
+
+/** Closes the topmost dialog as if its ✕ was pressed (the phone's Back button). */
+export function dismissTopDialog(): boolean {
+  const top = stack[stack.length - 1];
+  const close = top && closers.get(top);
+  if (!close) return false;
+  close();
+  return true;
+}
 
 export function dialog<T>(opts: DialogOptions<T>): Promise<T | undefined> {
   return new Promise((resolve) => {
@@ -110,6 +120,7 @@ export function dialog<T>(opts: DialogOptions<T>): Promise<T | undefined> {
       done = true;
       backdrop.remove();
       stack.splice(stack.indexOf(backdrop), 1);
+      closers.delete(backdrop);
       document.removeEventListener('keydown', onKey, true);
       resolve(v);
     };
@@ -147,6 +158,7 @@ export function dialog<T>(opts: DialogOptions<T>): Promise<T | undefined> {
     backdrop.append(box);
     document.body.append(backdrop);
     stack.push(backdrop);
+    closers.set(backdrop, close);
     opts.onOpen?.(box);
     const first = box.querySelector<HTMLElement>('input:not([type=hidden]), textarea, select');
     (first ?? box.querySelector<HTMLElement>('.btn-primary'))?.focus();
@@ -205,7 +217,17 @@ export interface MenuItem {
   hint?: string;
 }
 
+let menuCleanup: (() => void) | null = null;
+
+/** Closes the open popup menu, if any. */
+export function closeMenu(): boolean {
+  if (!menuCleanup) return false;
+  menuCleanup();
+  return true;
+}
+
 export function openMenu(anchor: HTMLElement, items: MenuItem[]): void {
+  closeMenu();
   document.querySelector('.menu')?.remove();
   const menu = h('div.menu', { role: 'menu' });
   items.forEach((it, i) => {
@@ -251,9 +273,11 @@ export function openMenu(anchor: HTMLElement, items: MenuItem[]): void {
   };
   const cleanup = () => {
     menu.remove();
+    if (menuCleanup === cleanup) menuCleanup = null;
     document.removeEventListener('pointerdown', onDown, true);
     document.removeEventListener('keydown', onKey, true);
   };
+  menuCleanup = cleanup;
   setTimeout(() => {
     document.addEventListener('pointerdown', onDown, true);
     document.addEventListener('keydown', onKey, true);
@@ -280,9 +304,11 @@ export function downloadBlob(blob: Blob, name: string): void {
   }, 4000);
 }
 
-export function pickFiles(accept: string, multiple: boolean): Promise<File[]> {
+/** The file picker; with `camera` set, phones open the camera to take a photo instead. */
+export function pickFiles(accept: string, multiple: boolean, camera = false): Promise<File[]> {
   return new Promise((resolve) => {
     const input = h('input', { type: 'file', accept, multiple, style: 'display:none' });
+    if (camera) input.setAttribute('capture', 'environment');
     input.addEventListener('change', () => {
       resolve(Array.from(input.files ?? []));
       input.remove();

@@ -7,6 +7,7 @@ import { clearText } from '../text';
 import { clearThumbs } from '../ui/thumbs';
 import { promptDialog } from '../ui/dom';
 import { t } from '../i18n';
+import { jpegInfo, orientContext, swapsSides } from '../exif';
 
 export class NotPdfError extends Error {}
 
@@ -69,22 +70,47 @@ export async function fileBytes(f: Blob): Promise<Uint8Array> {
   return new Uint8Array(await f.arrayBuffer());
 }
 
-/** Decodes any browser-supported image into PNG or JPEG bytes plus its size. */
+/** Longest side a picture keeps when it has to be re-encoded (enough for printing a full page). */
+const MAX_SIDE = 4000;
+
+function sniff(bytes: Uint8Array): 'image/jpeg' | 'image/png' | null {
+  if (bytes[0] === 0xff && bytes[1] === 0xd8) return 'image/jpeg';
+  if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) return 'image/png';
+  return null;
+}
+
+/**
+ * Decodes any browser-supported image into PNG or JPEG bytes plus its size. Photos are
+ * turned upright as the camera intended (EXIF orientation), and very large ones are
+ * scaled down so the PDF stays a sensible size.
+ */
 export async function imageToAsset(blob: Blob): Promise<Omit<Asset, 'id' | 'url'>> {
+  const bytes = await fileBytes(blob);
+  const kind = sniff(bytes);
+  const info = kind === 'image/jpeg' ? jpegInfo(bytes) : null;
+  const orientation = info?.orientation ?? 1;
   const bmp = await createImageBitmap(blob);
-  const width = bmp.width;
-  const height = bmp.height;
-  if (blob.type === 'image/jpeg' || blob.type === 'image/png') {
+  // Current browsers already turn the picture when decoding; older ones show the stored pixels.
+  const turned = !info || !swapsSides(orientation) || info.width === info.height || !(bmp.width === info.width && bmp.height === info.height);
+  const width = !turned ? bmp.height : bmp.width;
+  const height = !turned ? bmp.width : bmp.height;
+  if (kind && orientation === 1 && Math.max(width, height) <= MAX_SIDE) {
     bmp.close();
-    return { mime: blob.type, bytes: await fileBytes(blob), width, height };
+    return { mime: kind, bytes, width, height };
   }
+  const k = Math.min(1, MAX_SIDE / Math.max(width, height));
   const c = document.createElement('canvas');
-  c.width = width;
-  c.height = height;
-  c.getContext('2d')!.drawImage(bmp, 0, 0);
+  c.width = Math.max(1, Math.round(width * k));
+  c.height = Math.max(1, Math.round(height * k));
+  const ctx = c.getContext('2d')!;
+  ctx.scale(c.width / width, c.height / height);
+  if (!turned) orientContext(ctx, orientation, width, height);
+  ctx.drawImage(bmp, 0, 0);
   bmp.close();
-  const png = await new Promise<Blob>((res, rej) => c.toBlob((b) => (b ? res(b) : rej(new Error('encode failed'))), 'image/png'));
-  return { mime: 'image/png', bytes: await fileBytes(png), width, height };
+  const mime = kind === 'image/jpeg' ? 'image/jpeg' : 'image/png';
+  const out = await new Promise<Blob>((res, rej) => c.toBlob((b) => (b ? res(b) : rej(new Error('encode failed'))), mime, 0.9));
+  c.width = 0;
+  return { mime, bytes: await fileBytes(out), width: Math.round(width * k), height: Math.round(height * k) };
 }
 
 export function registerAsset(a: Omit<Asset, 'id' | 'url'>, id = uid('img')): Asset {

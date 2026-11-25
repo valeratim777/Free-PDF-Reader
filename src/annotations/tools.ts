@@ -4,6 +4,8 @@ import { uid, type Annotation, type AnnType, type FontKey, type LineAnn, type Ma
 import {
   annBBox,
   boxFrame,
+  canRotate,
+  rotateAnn,
   hitAnn,
   inflate,
   normRect,
@@ -22,7 +24,7 @@ import { renderAnn, svg } from './render';
 import type { Viewer } from '../viewer/viewer';
 import type { PageView } from '../viewer/pageView';
 import { h, icon, toast } from '../ui/dom';
-import { Copy, Eraser, SquarePen, Trash2 } from 'lucide';
+import { Copy, Eraser, RotateCw, SquarePen, Trash2 } from 'lucide';
 import { rawTextContent } from '../text';
 
 export type Tool =
@@ -315,6 +317,13 @@ export class Tools extends EventTarget {
     this.select(c.id);
   }
 
+  /** Turns the selected mark a quarter turn clockwise (pictures, signatures, stamps, text, shapes, drawings). */
+  rotateSelected(clockwise = true): void {
+    const a = this.selected ? store.ann(this.selected) : null;
+    if (!a || !canRotate(a)) return;
+    store.replaceAnn(rotateAnn(a, clockwise));
+  }
+
   /** Moves the selection by (dx, dy) screen points. */
   nudge(dx: number, dy: number): void {
     const a = this.selected ? store.ann(this.selected) : null;
@@ -409,7 +418,9 @@ export class Tools extends EventTarget {
       bar.append(btn(Eraser, t(a.type === 'highlight' ? 'removeHighlight' : 'removeMark'), () => this.deleteSelected(), 'danger'));
     } else {
       if (a.type === 'text' || a.type === 'note') bar.append(btn(SquarePen, t('editMark'), () => this.edit(a)));
+      if (canRotate(a)) bar.append(btn(RotateCw, t('rotate'), () => this.rotateSelected()));
       bar.append(btn(Copy, t('duplicate'), () => this.duplicateSelected()), btn(Trash2, t('delete'), () => this.deleteSelected(), 'danger'));
+      bar.classList.toggle('many', bar.children.length > 3);
     }
     bar.addEventListener('pointerdown', (e) => e.stopPropagation());
     pv.uiDiv.append(bar);

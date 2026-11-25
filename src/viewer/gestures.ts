@@ -1,8 +1,17 @@
-// Pinch-to-zoom and two-finger pan on touch screens, Ctrl+wheel zoom and
-// drag-to-pan with the hand tool on desktop.
+// Pinch-to-zoom and two-finger pan on touch screens, double tap to zoom, swipe to
+// turn pages (page-by-page mode), Ctrl+wheel zoom and drag-to-pan with the hand tool.
 import type { Viewer } from './viewer';
 
-export function installGestures(viewer: Viewer, isHandTool: () => boolean): void {
+export interface GestureOptions {
+  isHandTool(): boolean;
+  /** Whether one-finger taps and swipes are for the viewer (not for drawing or editing). */
+  canTap(target: EventTarget | null): boolean;
+  /** A single tap that was not part of a double tap. */
+  onTap?(target: EventTarget | null): void;
+}
+
+export function installGestures(viewer: Viewer, opts: GestureOptions): void {
+  const isHandTool = () => opts.isHandTool();
   const scroller = viewer.scroller;
   const pages = viewer.pagesEl;
 
@@ -96,6 +105,79 @@ export function installGestures(viewer: Viewer, isHandTool: () => boolean): void
   };
   scroller.addEventListener('touchend', (e) => e.touches.length < 2 && endPinch());
   scroller.addEventListener('touchcancel', endPinch);
+
+  // ---- one finger: double tap zooms, a sideways swipe turns the page ----
+  let touch: { x: number; y: number; t: number; sl: number; multi: boolean } | null = null;
+  let lastTap: { x: number; y: number; t: number } | null = null;
+  let tapTimer = 0;
+  scroller.addEventListener(
+    'touchstart',
+    (e) => {
+      if (e.touches.length > 1) {
+        if (touch) touch.multi = true;
+        clearTimeout(tapTimer);
+        lastTap = null;
+        return;
+      }
+      const t0 = e.touches[0];
+      touch = { x: t0.clientX, y: t0.clientY, t: performance.now(), sl: scroller.scrollLeft, multi: false };
+    },
+    { passive: true },
+  );
+  scroller.addEventListener('touchcancel', () => (touch = null));
+  scroller.addEventListener('touchend', (e) => {
+    const s = touch;
+    if (!s || e.touches.length) return;
+    touch = null;
+    if (s.multi || !opts.canTap(e.target)) {
+      lastTap = null;
+      return;
+    }
+    const t1 = e.changedTouches[0];
+    const dx = t1.clientX - s.x;
+    const dy = t1.clientY - s.y;
+    const dt = performance.now() - s.t;
+    const selecting = !!window.getSelection()?.toString();
+    if (viewer.paged && !selecting && Math.abs(dx) > 50 && Math.abs(dx) > 1.5 * Math.abs(dy) && dt < 800) {
+      // Only when the page is not wider than the screen in that direction (zoomed in).
+      const maxLeft = scroller.scrollWidth - scroller.clientWidth;
+      const atEdge = dx < 0 ? s.sl >= maxLeft - 2 : s.sl <= 2;
+      if (atEdge) {
+        lastTap = null;
+        viewer.scrollToPage(viewer.current + (dx < 0 ? 1 : -1));
+        return;
+      }
+    }
+    if (Math.hypot(dx, dy) > 10 || dt > 350 || selecting) {
+      lastTap = null;
+      return;
+    }
+    const now = performance.now();
+    if (lastTap && now - lastTap.t < 330 && Math.hypot(t1.clientX - lastTap.x, t1.clientY - lastTap.y) < 40) {
+      clearTimeout(tapTimer);
+      lastTap = null;
+      e.preventDefault();
+      doubleTap(t1.clientX, t1.clientY);
+      return;
+    }
+    lastTap = { x: t1.clientX, y: t1.clientY, t: now };
+    const target = e.target;
+    clearTimeout(tapTimer);
+    tapTimer = window.setTimeout(() => {
+      lastTap = null;
+      opts.onTap?.(target);
+    }, 330);
+  });
+
+  /** Zooms in twice around the tapped point, or back to the fitted size. */
+  const doubleTap = (x: number, y: number) => {
+    const r = scroller.getBoundingClientRect();
+    const anchor = { x: x - r.left, y: y - r.top };
+    const fitMode = viewer.paged ? 'page' : 'auto';
+    const fit = viewer.fitScale(fitMode);
+    if (viewer.scale > fit * 1.3) viewer.setMode(fitMode);
+    else viewer.zoomTo(viewer.scale * 2.2, anchor);
+  };
 
   // ---- hand tool: drag to scroll with a mouse or pen ----
   let drag: { x: number; y: number; sl: number; st: number; id: number } | null = null;

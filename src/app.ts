@@ -31,6 +31,11 @@ import {
   FileStack,
   FileText as FileIcon,
   Trash2,
+  Bookmark,
+  BookOpen,
+  Eye,
+  Lightbulb,
+  ScanLine,
 } from 'lucide';
 import { store } from './store';
 import { getLang, langSetting, LANGS, setLang, t } from './i18n';
@@ -41,9 +46,10 @@ import { Sidebar } from './ui/sidebar';
 import { Search } from './ui/search';
 import { MOD, PropsBar, TOOL_INFO, TopBar, ToolBar, logo } from './ui/toolbar';
 import { helpDialog } from './features/help';
-import { listenForSystemFiles } from './features/native';
-import { busy, confirmDialog, dialog, downloadBlob, h, icon, keyName, openMenu, pickFiles, promptDialog, toast, type MenuItem } from './ui/dom';
-import { openOrganizer } from './ui/organizer';
+import { isNativeApp, keepScreenOn, listenForSystemFiles, nativePickPdf, type SystemFiles } from './features/native';
+import { installBackButton, syncBackButton } from './features/back';
+import { busy, closeMenu, confirmDialog, dialog, dismissTopDialog, downloadBlob, h, icon, keyName, openMenu, pickFiles, promptDialog, toast, type MenuItem } from './ui/dom';
+import { closeOrganizer, openOrganizer } from './ui/organizer';
 import { addSource, blankPdfBytes, fileBytes, imagesToPdfBytes, insertBytes, NotPdfError, openBytes, pagesOf, registerAsset } from './features/documents';
 import { canShareFiles, download, exportPdf, save, share, suggestedName } from './features/save';
 import { exportImagesDialog, exportText, printDocument, readAloud } from './features/output';
@@ -54,6 +60,8 @@ import { clearRecent, forgetCurrent, listRecent, notePage, recentBytes, remember
 import { takeSnapshot } from './features/snapshot';
 import { compressDialog } from './features/compress';
 import { translateDialog } from './features/translate';
+import { scanDocument } from './features/scan';
+import { bookmarkedPages, isBookmarked, toggleBookmark } from './features/bookmarks';
 import { checkForUpdates, isInstalledApp } from './features/update';
 import { clearPages, pageInfo } from './pages';
 import { annBBox, translateAnn } from './geometry';
@@ -94,6 +102,7 @@ export class App {
   private installPrompt: InstallPrompt | null = null;
   /** The mark copied with Ctrl+C / Ctrl+X (with its picture, so it can be pasted into another document). */
   private clip: { ann: Annotation; asset?: Omit<Asset, 'url'>; token: string; text: string; pastes: number } | null = null;
+  private tapHadFocus = false;
 
   constructor(private root: HTMLElement) {}
 
@@ -128,7 +137,15 @@ export class App {
     this.dropOverlay = h('div#dropOverlay', { 'aria-hidden': 'true' }, h('div.drop-card', {}, icon(FolderOpen, 40), h('span')));
     this.root.append(this.topbar.el, this.toolbar.el, this.props.el, h('main#main', {}, this.sidebar.el, backdrop, viewerWrap), this.dropOverlay);
 
-    installGestures(this.viewer, () => this.tools.tool === 'hand');
+    installGestures(this.viewer, {
+      isHandTool: () => this.tools.tool === 'hand',
+      canTap: (target) => this.canTap(target),
+      onTap: (target) => this.onPageTap(target),
+    });
+    // Whether something was selected or being edited when a tap started (then the tap only deselects).
+    viewerEl.addEventListener('pointerdown', () => (this.tapHadFocus = !!this.tools.selected || this.tools.isEditing()), true);
+    viewerEl.addEventListener('bookmarks', () => this.markBookmarks());
+    this.applyViewPrefs();
     this.tools.setTool('select');
     this.tools.addEventListener('snapshot', (e) => {
       const { pageId, rect } = (e as CustomEvent<SnapshotRequest>).detail;
@@ -142,6 +159,7 @@ export class App {
     this.wireClipboard();
     this.wireDragDrop();
     this.wireLifecycle();
+    void installBackButton(() => this.handleBack(), () => store.isOpen).catch((e) => console.warn('back button', e));
     void this.renderWelcome();
     this.topbar.update();
     void this.handleLaunch();
@@ -158,12 +176,20 @@ export class App {
   // ---------------- wiring ----------------
 
   private wireStore(): void {
+    let wasOpen = false;
     store.onChange((d) => {
       document.body.classList.toggle('has-doc', store.isOpen);
+      if (store.isOpen !== wasOpen) {
+        wasOpen = store.isOpen;
+        syncBackButton();
+        keepScreenOn(wasOpen && this.keepAwake());
+        if (!wasOpen) this.setImmersive(false);
+      }
       if (d.kind === 'all' || d.kind === 'pages') {
         this.viewer.rebuild();
         this.search.invalidate();
         this.sidebar.render();
+        this.markBookmarks();
       } else if (d.kind === 'anns') {
         this.viewer.redrawOverlays(d.pageIds);
         if (!this.tools.isEditing()) this.sidebar.annotationsChanged();
@@ -254,6 +280,9 @@ export class App {
         e.preventDefault();
         const step = e.shiftKey ? 10 : 1;
         this.tools.nudge(k === 'arrowleft' ? -step : k === 'arrowright' ? step : 0, k === 'arrowup' ? -step : k === 'arrowdown' ? step : 0);
+      } else if (store.isOpen && this.viewer.paged && !this.tools.selected && ['pagedown', 'pageup', 'arrowright', 'arrowleft'].includes(k)) {
+        e.preventDefault();
+        this.viewer.scrollToPage(this.viewer.current + (k === 'pagedown' || k === 'arrowright' ? 1 : -1));
       } else if (store.isOpen && (k === 'pagedown' || (k === ' ' && !e.shiftKey && document.body.classList.contains('presenting')))) {
         if (document.body.classList.contains('presenting')) {
           e.preventDefault();
@@ -408,7 +437,7 @@ export class App {
 
   /** Files passed by the OS ("Open with…") or shared from another app. */
   private async handleLaunch(): Promise<void> {
-    void listenForSystemFiles((file) => void this.handleFiles([file])).catch((e) => console.warn('system files', e));
+    void listenForSystemFiles((r) => void this.receiveSystemFiles(r)).catch((e) => console.warn('system files', e));
     const lq = (window as unknown as { launchQueue?: { setConsumer(cb: (p: { files: FileSystemFileHandle[] }) => void): void } }).launchQueue;
     lq?.setConsumer(async (params) => {
       if (!params.files?.length) return;
@@ -438,6 +467,16 @@ export class App {
 
   async openDialog(): Promise<void> {
     if (!(await this.confirmDiscard())) return;
+    if (isNativeApp()) {
+      // The system picker: the app may then save back into the chosen file.
+      try {
+        const r = await nativePickPdf();
+        if (r) await this.openFile(r.file, null, r.doc);
+        return;
+      } catch (e) {
+        console.warn('system picker', e);
+      }
+    }
     const picker = (window as unknown as { showOpenFilePicker?: (o: unknown) => Promise<FileSystemFileHandle[]> }).showOpenFilePicker;
     if (picker) {
       let handle: FileSystemFileHandle | undefined;
@@ -456,18 +495,50 @@ export class App {
     if (files[0]) await this.openFile(files[0]);
   }
 
+  /** Before the open document goes away: "Save changes?" — true to go on, false to stay. */
   private async confirmDiscard(): Promise<boolean> {
     if (!store.isOpen || !store.dirty) return true;
-    return confirmDialog(t('unsavedChanges'), t('discard'), true);
+    const r = await dialog<'save' | 'discard' | 'cancel'>({
+      title: t('saveChangesTitle'),
+      body: h('p', {}, t('saveChangesAsk', { name: store.fileName || t('untitled') })),
+      actions: [
+        { label: t('dontSave'), value: 'discard', danger: true },
+        { label: t('cancel'), value: 'cancel' },
+        { label: t('save'), value: 'save', primary: true },
+      ],
+      dismissValue: 'cancel',
+    });
+    if (r === 'save') return save();
+    return r === 'discard';
   }
 
-  async openFile(file: File, handle: FileSystemFileHandle | null = null): Promise<void> {
+  /** Files from another app ("Open with", "Share") or from the desktop shell. */
+  private async receiveSystemFiles(r: SystemFiles): Promise<void> {
+    if (r.error || !r.files.length) {
+      toast(t('errorOpen', { msg: r.error ?? t('notPdf') }), 'error', 6000);
+      return;
+    }
+    // On the phone the file simply opens (after "save changes?"); the desktop asks open or insert.
+    if (isNativeApp()) {
+      if (!(await this.confirmDiscard())) return;
+      dismissTopDialog();
+      closeOrganizer();
+      const [only] = r.files;
+      if (r.files.length === 1 && (only.type === 'application/pdf' || /\.pdf$/i.test(only.name))) await this.openFile(only, null, r.doc);
+      else await this.handleFiles(r.files, false);
+      return;
+    }
+    await this.handleFiles(r.files);
+  }
+
+  async openFile(file: File, handle: FileSystemFileHandle | null = null, doc: { uri: string; writable: boolean } | null = null): Promise<void> {
     busy(true);
     try {
       if (file.size > 150 * 1024 * 1024) toast(t('fileTooLarge'));
       const bytes = await fileBytes(file);
       const ok = await openBytes(bytes, file.name, handle);
       if (ok) {
+        store.nativeDoc = doc;
         this.afterOpen();
         await startSession();
         this.resumeAt(await rememberOpened(bytes, file.name));
@@ -496,7 +567,7 @@ export class App {
     this.sidebar.resetOutline();
     this.tools.setTool('select');
     this.viewer.current = 0;
-    this.viewer.setMode('auto');
+    this.viewer.setMode(this.viewer.paged ? 'page' : 'auto');
     this.viewer.scrollToPage(0);
     let wantSidebar = false;
     try {
@@ -521,7 +592,7 @@ export class App {
   }
 
   /** Dropped/shared files: PDFs open (or get inserted), images become pages. */
-  async handleFiles(files: File[]): Promise<void> {
+  async handleFiles(files: File[], ask = true): Promise<void> {
     const pdfs = files.filter((f) => f.type === 'application/pdf' || /\.pdf$/i.test(f.name));
     const images = files.filter((f) => f.type.startsWith('image/'));
     if (!pdfs.length && !images.length) {
@@ -529,7 +600,7 @@ export class App {
       return;
     }
     let insert = false;
-    if (store.isOpen) {
+    if (store.isOpen && ask) {
       const r = await dialog<string>({
         title: t('appName'),
         body: h('p', {}, files.map((f) => f.name).join(', ')),
@@ -736,6 +807,28 @@ export class App {
     });
   }
 
+  /**
+   * The phone's Back button: closes what is on top (dialog, menu, organizer, panel,
+   * tool), then the document — asking whether to save — and returns to the start
+   * screen. False when there is nothing left to close.
+   */
+  async handleBack(): Promise<boolean> {
+    if (document.getElementById('busy')) return true;
+    if (dismissTopDialog() || closeMenu() || closeOrganizer()) return true;
+    if (!store.isOpen) return false;
+    const sel = window.getSelection();
+    if (this.tools.isEditing()) this.tools.finishEditing();
+    else if (this.tools.selected) this.tools.select(null);
+    else if (this.tools.tool !== 'select' && !document.body.classList.contains('presenting')) this.tools.setTool('select');
+    else if (sel && !sel.isCollapsed && sel.toString().trim()) sel.removeAllRanges();
+    else if (this.search.isOpen) this.search.close();
+    else if (this.sidebar.isOpen && window.innerWidth <= 760) this.sidebar.toggle(false);
+    else if (document.body.classList.contains('presenting')) this.togglePresentation(false);
+    else if (document.body.classList.contains('immersive')) this.setImmersive(false);
+    else await this.closeDocument();
+    return true;
+  }
+
   async closeDocument(): Promise<void> {
     if (!(await this.confirmDiscard())) return;
     this.search.close();
@@ -815,11 +908,138 @@ export class App {
     }
   }
 
+  // ---------------- reading ----------------
+
+  private pref(key: string, fallback: boolean): boolean {
+    try {
+      const v = localStorage.getItem(key);
+      return v === null ? fallback : v === '1';
+    } catch {
+      return fallback;
+    }
+  }
+
+  private setPref(key: string, on: boolean): void {
+    try {
+      localStorage.setItem(key, on ? '1' : '0');
+    } catch {
+      /* ignore */
+    }
+  }
+
+  /** Night mode, eye comfort and page-by-page reading are remembered between visits. */
+  private applyViewPrefs(): void {
+    document.body.classList.toggle('night', this.pref('pr.night', false));
+    document.body.classList.toggle('eyecare', this.pref('pr.eyecare', false));
+    this.viewer.setPaged(this.pref('pr.paged', false));
+  }
+
+  /** Keep the screen on while a document is open (on by default on phones and tablets). */
+  keepAwake(): boolean {
+    return this.pref('pr.keepAwake', isNativeApp() || matchMedia('(pointer: coarse)').matches);
+  }
+
+  private toggleKeepAwake(): void {
+    const on = !this.keepAwake();
+    this.setPref('pr.keepAwake', on);
+    keepScreenOn(on && store.isOpen);
+    toast(on ? t('keepAwakeOn') : t('keepAwakeOff'));
+  }
+
+  private togglePaged(): void {
+    const on = !this.viewer.paged;
+    this.setPref('pr.paged', on);
+    this.viewer.setPaged(on);
+    if (on && matchMedia('(pointer: coarse)').matches) toast(t('pagedHint'), 'info', 4500);
+  }
+
+  private toggleEyecare(): void {
+    const on = !document.body.classList.contains('eyecare');
+    document.body.classList.toggle('eyecare', on);
+    this.setPref('pr.eyecare', on);
+    if (on) {
+      document.body.classList.remove('night');
+      this.setPref('pr.night', false);
+    }
+  }
+
+  /** Full-screen reading: the bars hide, a tap on the page brings them back. */
+  setImmersive(on: boolean): void {
+    if (document.body.classList.contains('immersive') === on) return;
+    document.body.classList.toggle('immersive', on);
+    if (on && !this.pref('pr.immersiveTip', false)) {
+      this.setPref('pr.immersiveTip', true);
+      toast(t('immersiveHint'), 'info', 4000);
+    }
+  }
+
+  /** One-finger taps and swipes on a page are for reading only with the Select and Hand tools. */
+  private canTap(target: EventTarget | null): boolean {
+    if (!store.isOpen || (this.tools.tool !== 'select' && this.tools.tool !== 'hand')) return false;
+    const el = target as Element | null;
+    return !el?.closest?.('.sel-box, .sel-handle, .sel-actions, .text-editor, .note-editor, .formLayer input, .formLayer select, .formLayer textarea, .formLayer a, a, #searchbar, #pageBadge');
+  }
+
+  /** A tap on an empty spot of a page shows or hides the bars (phones). */
+  private onPageTap(target: EventTarget | null): void {
+    if (this.tapHadFocus || this.tools.selected || this.tools.isEditing() || document.querySelector('.modal-backdrop, .menu, #organizer')) return;
+    if (!(target as Element | null)?.closest?.('.page')) return;
+    if (window.getSelection()?.toString()) return;
+    this.setImmersive(!document.body.classList.contains('immersive'));
+  }
+
+  /** Bookmark ribbons on the pages the reader marked. */
+  private markBookmarks(): void {
+    const marked = new Set(bookmarkedPages());
+    this.viewer.order.forEach((v, i) => v.div.classList.toggle('bookmarked', marked.has(i)));
+  }
+
+  private toggleBookmarkHere(): void {
+    const on = toggleBookmark(this.viewer.current);
+    if (on === null) {
+      toast(t('bookmarkOtherFile'), 'error');
+      return;
+    }
+    this.markBookmarks();
+    toast(on ? t('bookmarkAdded', { n: this.viewer.current + 1 }) : t('bookmarkRemoved'), 'success');
+    if (this.sidebar.isOpen) this.sidebar.render();
+  }
+
+  /** Photos of paper pages → a new PDF. */
+  async scan(): Promise<void> {
+    if (!(await this.confirmDiscard())) return;
+    let bytes: Uint8Array | null;
+    try {
+      bytes = await scanDocument();
+    } catch (e) {
+      this.reportOpenError(e);
+      return;
+    }
+    if (!bytes) return;
+    busy(true);
+    try {
+      const d = new Date();
+      const name = `${t('scanFileName')} ${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}.pdf`;
+      if (await openBytes(bytes, name)) {
+        forgetCurrent();
+        store.dirty = true;
+        store.emit({ kind: 'doc' });
+        this.afterOpen();
+        await startSession();
+      }
+    } catch (e) {
+      this.reportOpenError(e);
+    } finally {
+      busy(false);
+    }
+  }
+
   // ---------------- menus ----------------
 
   private moreMenu(anchor: HTMLElement): void {
     const open = store.isOpen;
-    const hasPicker = 'showSaveFilePicker' in window;
+    const native = isNativeApp();
+    const hasPicker = 'showSaveFilePicker' in window || native;
     const theme = this.theme();
     const items: MenuItem[] = [
       { section: t('secFile'), label: t('openPdf'), icon: FolderOpen, hint: `${MOD}O`, action: () => void this.openDialog() },
@@ -828,13 +1048,14 @@ export class App {
       items.push(
         { label: t('save'), icon: Save, hint: `${MOD}S`, action: () => void save() },
         ...(hasPicker ? [{ label: t('saveAs'), icon: Save, hint: `${MOD}Shift+S`, action: () => void save(true) }] : []),
-        { label: t('download'), icon: Download, action: () => void download() },
+        ...(native ? [] : [{ label: t('download'), icon: Download, action: () => void download() }]),
         ...(canShareFiles() ? [{ label: t('share'), icon: Share2, action: () => void share() }] : []),
         { label: t('print'), icon: Printer, hint: `${MOD}P`, action: () => void printDocument() },
       );
     }
     items.push(
       { label: t('recentFiles'), icon: Clock, action: () => void this.recentDialog() },
+      { label: t('scanDoc'), icon: ScanLine, action: () => void this.scan() },
       { label: t('createBlank'), icon: FilePlus, action: () => void this.newBlank() },
       { label: t('imagesToPdf'), icon: Images, action: () => void this.imagesToPdf() },
       { label: t('mergePdfs'), icon: Combine, action: () => void this.mergePdfs() },
@@ -853,6 +1074,13 @@ export class App {
             if (p) store.commit('pages', (s) => (s.pages[i] = { ...p, rot: ((p.rot + 90) % 360) as typeof p.rot }));
           },
         },
+        {
+          label: isBookmarked(this.viewer.current) ? t('bookmarkRemove') : t('bookmarkAdd'),
+          icon: Bookmark,
+          checked: isBookmarked(this.viewer.current),
+          action: () => this.toggleBookmarkHere(),
+        },
+        ...(bookmarkedPages().length ? [{ label: t('myBookmarks'), icon: Bookmark, action: () => this.sidebar.showBookmarks() }] : []),
         { label: t('insertFile'), icon: FileStack, action: () => void this.insertFromFile() },
         { label: t('properties'), icon: Info, action: () => void propertiesDialog(this.viewer.current) },
         { label: t('protect'), icon: Lock, action: () => void protectDialog(), checked: !!store.protection },
@@ -862,9 +1090,13 @@ export class App {
         { label: t('downloadFlattened'), icon: FileText, action: () => void this.saveFlattened() },
         { label: t('exportImages'), icon: FileImage, action: () => void exportImagesDialog(this.viewer.current) },
         { label: t('exportText'), icon: FileText, action: () => void exportText() },
-        { section: t('secView'), label: t('readAloud'), icon: Volume2, action: () => readAloud(this.viewer, this.viewer.scroller.parentElement!) },
-        { label: t('presentation'), icon: Maximize2, action: () => this.togglePresentation(true) },
+        { section: t('secView'), label: t('pagedMode'), icon: BookOpen, action: () => this.togglePaged(), checked: this.viewer.paged },
+        { label: t('fullScreenRead'), icon: Maximize2, action: () => this.setImmersive(true) },
         { label: t('nightMode'), icon: Moon, action: () => this.toggleNight(), checked: document.body.classList.contains('night') },
+        { label: t('eyeCare'), icon: Eye, action: () => this.toggleEyecare(), checked: document.body.classList.contains('eyecare') },
+        { label: t('keepAwake'), icon: Lightbulb, action: () => this.toggleKeepAwake(), checked: this.keepAwake() },
+        { label: t('readAloud'), icon: Volume2, action: () => readAloud(this.viewer, this.viewer.scroller.parentElement!) },
+        { label: t('presentation'), icon: Maximize2, action: () => this.togglePresentation(true) },
       );
     }
     items.push(
@@ -927,7 +1159,13 @@ export class App {
   }
 
   private toggleNight(): void {
-    document.body.classList.toggle('night');
+    const on = !document.body.classList.contains('night');
+    document.body.classList.toggle('night', on);
+    this.setPref('pr.night', on);
+    if (on) {
+      document.body.classList.remove('eyecare');
+      this.setPref('pr.eyecare', false);
+    }
   }
 
   private theme(): string {
@@ -999,6 +1237,7 @@ export class App {
         h(
           'div.quick-actions',
           {},
+          quick(ScanLine, t('scanDoc'), () => void this.scan()),
           quick(FilePlus, t('createBlank'), () => void this.newBlank()),
           quick(Images, t('imagesToPdf'), () => void this.imagesToPdf()),
           quick(Combine, t('mergePdfs'), () => void this.mergePdfs()),

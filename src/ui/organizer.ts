@@ -13,6 +13,15 @@ import { Check, Copy, FileDown, FilePlus, Files, RotateCcw, RotateCw, Scissors, 
 
 const TILE_W = 130;
 
+let activeClose: (() => void) | null = null;
+
+/** Closes the page organizer if it is open (the phone's Back button). */
+export function closeOrganizer(): boolean {
+  if (!activeClose) return false;
+  activeClose();
+  return true;
+}
+
 export function openOrganizer(onClose: (focusIndex: number) => void, startIndex = 0): void {
   const selected = new Set<string>();
   let anchor: string | null = null;
@@ -410,7 +419,9 @@ export function openOrganizer(onClose: (focusIndex: number) => void, startIndex 
   };
   document.addEventListener('keydown', onKey, true);
 
+  activeClose = close;
   function close(): void {
+    activeClose = null;
     document.querySelectorAll('.drag-ghost').forEach((g) => g.remove());
     store.removeEventListener('change', onChange);
     document.removeEventListener('keydown', onKey, true);

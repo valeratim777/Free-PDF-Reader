@@ -856,7 +856,7 @@ body.dragging .drop-zone {
 
 .quick-actions {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 10px;
   margin-top: 14px;
 }
@@ -1693,7 +1693,7 @@ body.presenting .page {
   }
 
   .quick-actions {
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(2, 1fr);
   }
 
   .welcome-card h1 {
@@ -2686,4 +2686,210 @@ kbd {
   height: 100%;
   background: var(--accent);
   transition: width 0.25s;
+}
+
+/* ---------- page by page (swipe to turn) ---------- */
+
+#viewer.paged .page:not(.shown) {
+  display: none;
+}
+
+#viewer.paged .pages {
+  min-height: 100%;
+  justify-content: center;
+}
+
+#viewer.paged .page.turn-next {
+  animation: turn-next 0.22s ease-out;
+}
+
+#viewer.paged .page.turn-prev {
+  animation: turn-prev 0.22s ease-out;
+}
+
+@keyframes turn-next {
+  from {
+    transform: translateX(28%);
+    opacity: 0.3;
+  }
+}
+
+@keyframes turn-prev {
+  from {
+    transform: translateX(-28%);
+    opacity: 0.3;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #viewer.paged .page.turn-next,
+  #viewer.paged .page.turn-prev {
+    animation: none;
+  }
+}
+
+/* ---------- full-screen reading (tap the page to hide the bars) ---------- */
+
+body.immersive #topbar,
+body.immersive #toolbar,
+body.immersive #propsbar {
+  display: none !important;
+}
+
+body.immersive #app {
+  grid-template-rows: 0 0 0 1fr;
+}
+
+@media (max-width: 760px) {
+  body.immersive #app {
+    grid-template-rows: 0 1fr 0 0;
+  }
+}
+
+/* ---------- eye comfort: warm, softer pages ---------- */
+
+body.eyecare .pageCanvas,
+body.eyecare .thumb-img canvas {
+  filter: sepia(0.38) saturate(1.15) brightness(0.95);
+}
+
+body.eyecare #viewer {
+  background: #d9d1bd;
+}
+
+html[data-theme='dark'] body.eyecare #viewer {
+  background: #2b2720;
+}
+
+/* ---------- the reader's bookmarks ---------- */
+
+.page.bookmarked::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 18px;
+  width: 16px;
+  height: 26px;
+  background: #ef4444;
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 72%, 0 100%);
+  pointer-events: none;
+  z-index: 5;
+}
+
+.side-section {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  padding: 10px 8px 4px;
+}
+
+.my-bookmark {
+  display: flex;
+  align-items: center;
+}
+
+.my-bookmark .outline-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+}
+
+.my-bookmark .outline-item .icon {
+  color: #ef4444;
+}
+
+/* ---------- selection actions on small phones ---------- */
+
+@media (max-width: 480px) {
+  .sel-actions.many button:not(.danger) span {
+    display: none;
+  }
+}
+
+/* ---------- scanning ---------- */
+
+.scan-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 10px;
+  max-height: 46vh;
+  overflow: auto;
+  padding: 2px;
+}
+
+.scan-item {
+  position: relative;
+  aspect-ratio: 3 / 4;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-2, #f3f4f6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.scan-item img {
+  max-width: 82%;
+  max-height: 82%;
+  object-fit: contain;
+  transition: transform 0.15s;
+}
+
+.scan-num {
+  position: absolute;
+  left: 6px;
+  top: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.scan-tools {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  display: flex;
+  gap: 2px;
+}
+
+.scan-tools .icon-btn {
+  background: var(--panel);
+  border-radius: 8px;
+}
+
+.scan-add {
+  margin: 12px 0;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.scan-add .btn {
+  gap: 6px;
+}
+
+.seg {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.seg button {
+  flex: 1;
+  min-width: 80px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  color: inherit;
+  cursor: pointer;
+}
+
+.seg button.active {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
 }

@@ -455,6 +455,7 @@ async function applyOnPages(all: PageResult[], to: string): Promise<void> {
   // The original file stays as it is: saving writes a new one.
   store.fileName = name;
   store.fileHandle = null;
+  store.nativeDoc = null;
   forgetCurrent();
   store.commit('pages', (s) => {
     s.anns = s.anns.filter((a) => !(a.generated === 'translation' && pageIds.has(a.pageId)));

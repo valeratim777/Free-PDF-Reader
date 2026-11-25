@@ -2,7 +2,7 @@
 import { zipSync } from 'fflate';
 import { store } from '../store';
 import { exportPdf, loadExported, share, suggestedName } from './save';
-import { isNativeApp } from './native';
+import { isNativeApp, nativePrint } from './native';
 import { pageText } from '../text';
 import { busy, dialog, downloadBlob, field, h, icon, iconButton, select, toast } from '../ui/dom';
 import { t } from '../i18n';
@@ -35,10 +35,20 @@ async function renderPages(bytes: Uint8Array, pages: number[], dpi: number, mime
 
 export async function printDocument(): Promise<void> {
   if (!store.isOpen) return;
-  // Android's WebView has no print dialog; the share sheet offers "Print" instead.
+  // Android's WebView has no print dialog: the app hands the PDF to Android's own print service.
   if (isNativeApp()) {
-    toast(t('printViaShare'));
-    return share();
+    busy(true, t('loading'));
+    try {
+      const bytes = await exportPdf({ noProtection: true });
+      await nativePrint(new Blob([bytes.slice()], { type: 'application/pdf' }), suggestedName());
+    } catch (e) {
+      console.warn('print', e);
+      toast(t('printViaShare'));
+      return share();
+    } finally {
+      busy(false);
+    }
+    return;
   }
   busy(true, t('loading'));
   const root = document.getElementById('print-root')!;

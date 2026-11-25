@@ -4,7 +4,7 @@ import { pdfjs, docOptions } from '../pdfjs';
 import { pageInfo } from '../pages';
 import type { Rect } from '../model';
 import { busy, downloadBlob, toast } from '../ui/dom';
-import { isNativeApp, nativeShare } from './native';
+import { isNativeApp, nativeSaveAs, nativeShare, nativeWriteBack, saveToDocuments } from './native';
 import { noteSaved } from './recent';
 import { t } from '../i18n';
 
@@ -107,6 +107,37 @@ async function pickAndWrite(picker: SavePicker, bytes: Uint8Array): Promise<'sav
   return 'saved';
 }
 
+/**
+ * Android: back into the opened file when the app may write there; otherwise the
+ * system asks where to save (and later saves go to that file).
+ */
+async function saveNative(bytes: Uint8Array, asNew: boolean): Promise<'saved' | 'cancelled'> {
+  const blob = new Blob([bytes.slice()], { type: 'application/pdf' });
+  const doc = store.nativeDoc;
+  if (!asNew && doc?.writable) {
+    try {
+      await nativeWriteBack(doc.uri, blob, suggestedName());
+      return 'saved';
+    } catch (e) {
+      // E.g. the file was moved or the app lost access: ask where to save instead.
+      console.warn('write back', e);
+    }
+  }
+  let r: { uri: string; name: string } | null;
+  try {
+    r = await nativeSaveAs(blob, suggestedName(), 'application/pdf');
+  } catch (e) {
+    console.warn('save picker', e);
+    const path = await saveToDocuments(blob, suggestedName());
+    if (path) toast(t('savedTo', { path }), 'success', 5000);
+    return path ? 'saved' : 'cancelled';
+  }
+  if (!r) return 'cancelled';
+  store.nativeDoc = { uri: r.uri, writable: true };
+  store.fileName = /\.pdf$/i.test(r.name) ? r.name : `${r.name}.pdf`;
+  return 'saved';
+}
+
 /** Save: back to the opened file when possible; otherwise ask where (desktop) or download. */
 export async function save(asNew = false): Promise<boolean> {
   if (!store.isOpen) {
@@ -118,7 +149,9 @@ export async function save(asNew = false): Promise<boolean> {
     const bytes = await exportPdf();
     const picker = savePicker();
     const handle = store.fileHandle;
-    if (!asNew && handle && 'createWritable' in handle) {
+    if (isNativeApp()) {
+      if ((await saveNative(bytes, asNew)) === 'cancelled') return false;
+    } else if (!asNew && handle && 'createWritable' in handle) {
       await writeHandle(handle, bytes);
     } else {
       const r = picker ? await pickAndWrite(picker, bytes) : 'unavailable';
@@ -128,7 +161,7 @@ export async function save(asNew = false): Promise<boolean> {
     void noteSaved(bytes, store.fileName);
     store.dirty = false;
     store.emit({ kind: 'doc' });
-    if (!isNativeApp()) toast(t('saved'), 'success');
+    toast(t('saved'), 'success');
     return true;
   } catch (e) {
     console.error(e);

@@ -236,6 +236,63 @@ export function translateAnn<T extends Annotation>(a: T, dx: number, dy: number)
   return c as T;
 }
 
+/** Marks that can be turned a quarter turn. Text markups and notes stay as they are. */
+export function canRotate(a: Annotation): boolean {
+  return !['highlight', 'underline', 'strike', 'note'].includes(a.type);
+}
+
+/**
+ * Returns a copy turned by a quarter turn around the center of its bounding box,
+ * clockwise as seen on screen (whatever the page rotation). Pictures, signatures,
+ * stamps and text boxes turn their content; shapes and drawings turn their points.
+ */
+export function rotateAnn<T extends Annotation>(a: T, clockwise = true): T {
+  const bb = annBBox(a);
+  const cx = (bb.x1 + bb.x2) / 2;
+  const cy = (bb.y1 + bb.y2) / 2;
+  // User space has y up: a clockwise turn on screen is a negative angle.
+  const turn = (p: Pt): Pt => {
+    const dx = p.x - cx;
+    const dy = p.y - cy;
+    return clockwise ? { x: cx + dy, y: cy - dx } : { x: cx - dy, y: cy + dx };
+  };
+  const swap = (r: Rect): Rect => {
+    const hw = rectH(r) / 2;
+    const hh = rectW(r) / 2;
+    const mx = (r.x1 + r.x2) / 2;
+    const my = (r.y1 + r.y2) / 2;
+    return { x1: mx - hw, y1: my - hh, x2: mx + hw, y2: my + hh };
+  };
+  const c = structuredClone(a) as Annotation;
+  switch (c.type) {
+    case 'ink':
+    case 'marker':
+      c.strokes = c.strokes.map((s) => s.map(turn));
+      break;
+    case 'line':
+    case 'arrow':
+      c.p1 = turn(c.p1);
+      c.p2 = turn(c.p2);
+      break;
+    case 'image':
+    case 'signature':
+    case 'stamp':
+    case 'text':
+      c.rect = swap(c.rect);
+      c.rot = normTurn(c.rot + (clockwise ? -90 : 90));
+      break;
+    case 'rect':
+    case 'ellipse':
+    case 'whiteout':
+    case 'redact':
+      c.rect = swap(c.rect);
+      break;
+    default:
+      break;
+  }
+  return c as T;
+}
+
 /**
  * Returns a copy of the annotation whose bounding box `from` is mapped onto `to`.
  * Text and stamps scale their font size instead of stretching.

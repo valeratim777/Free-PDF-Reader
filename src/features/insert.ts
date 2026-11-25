@@ -59,7 +59,23 @@ export async function addImageAt(tools: Tools, pv: PageView, at: Pt, image: Blob
 }
 
 export async function insertImage(tools: Tools): Promise<void> {
-  const [file] = await pickFiles('image/*', false);
+  // On phones: a photo from the gallery or a new one from the camera.
+  let camera = false;
+  if (matchMedia('(pointer: coarse)').matches) {
+    const r = await dialog<'camera' | 'gallery' | null>({
+      title: t('toolImage'),
+      body: h('p', {}, t('imageSourceAsk')),
+      dismissValue: null,
+      actions: [
+        { label: t('cancel'), value: null },
+        { label: t('fromGallery'), value: 'gallery' },
+        { label: t('takePhoto'), value: 'camera', primary: true },
+      ],
+    });
+    if (!r) return tools.setTool('select');
+    camera = r === 'camera';
+  }
+  const [file] = await pickFiles('image/*', false, camera);
   if (!file) return tools.setTool('select');
   try {
     const asset = registerAsset(await imageToAsset(file));

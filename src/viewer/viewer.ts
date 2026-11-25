@@ -18,6 +18,8 @@ export class Viewer extends EventTarget {
   scale = 1;
   mode: ZoomMode = 'auto';
   current = 0;
+  /** Page-by-page reading: one page on screen, swipe sideways to turn it. */
+  paged = false;
   private visible = new Set<PageView>();
   private io: IntersectionObserver;
   private renderTimer = 0;
@@ -85,8 +87,38 @@ export class Viewer extends EventTarget {
     this.order = order;
     for (const v of order) v.drawOverlay();
     this.current = Math.min(this.current, order.length - 1);
+    this.markShown();
     this.scheduleRender();
     this.updateCurrent();
+  }
+
+  /** Switches between continuous scrolling and one page at a time. */
+  setPaged(on: boolean): void {
+    if (this.paged === on) return;
+    const keep = this.current;
+    this.paged = on;
+    this.scroller.classList.toggle('paged', on);
+    this.markShown();
+    if (this.order.length) {
+      if (on && this.mode !== 'custom') this.setMode('page');
+      else if (this.mode !== 'custom') this.applyScale(this.fitScale(this.mode));
+      this.scrollToPage(keep);
+    }
+  }
+
+  /** In page-by-page mode only the current page is laid out. */
+  private markShown(dir = 0): void {
+    this.order.forEach((v, i) => {
+      const shown = i === this.current;
+      v.div.classList.toggle('shown', shown);
+      if (!shown) v.div.classList.remove('turn-next', 'turn-prev');
+    });
+    const v = this.order[this.current];
+    if (v && this.paged && dir) {
+      v.div.classList.remove('turn-next', 'turn-prev');
+      void v.div.offsetWidth;
+      v.div.classList.add(dir > 0 ? 'turn-next' : 'turn-prev');
+    }
   }
 
   get currentView(): PageView | undefined {
@@ -150,7 +182,7 @@ export class Viewer extends EventTarget {
     const ay = anchor?.y ?? this.scroller.clientHeight / 2;
     const cx = this.scroller.scrollLeft + ax;
     const cy = this.scroller.scrollTop + ay;
-    const ref = this.viewAtContentY(cy) ?? this.order[this.current];
+    const ref = (this.paged ? undefined : this.viewAtContentY(cy)) ?? this.order[this.current];
     const relX = (cx - ref.div.offsetLeft) / (ref.div.offsetWidth || 1);
     const relY = (cy - ref.div.offsetTop) / (ref.div.offsetHeight || 1);
     this.scale = scale;
@@ -175,7 +207,7 @@ export class Viewer extends EventTarget {
   }
 
   private updateCurrent(): void {
-    if (!this.order.length) return;
+    if (!this.order.length || this.paged) return;
     const y = this.scroller.scrollTop + this.scroller.clientHeight * 0.35;
     const v = this.viewAtContentY(y);
     const i = v ? this.order.indexOf(v) : 0;
@@ -188,6 +220,12 @@ export class Viewer extends EventTarget {
   scrollToPage(i: number, opts: { userY?: number; userX?: number; smooth?: boolean } = {}): void {
     const v = this.order[Math.max(0, Math.min(this.order.length - 1, i))];
     if (!v) return;
+    if (this.paged) {
+      const before = this.current;
+      this.current = this.order.indexOf(v);
+      this.markShown(Math.sign(this.current - before));
+      if (this.mode !== 'custom' && this.current !== before) this.applyScale(this.fitScale(this.mode));
+    }
     let top = v.div.offsetTop - PAD / 2;
     let left = v.div.offsetWidth <= this.scroller.clientWidth ? v.div.offsetLeft + v.div.offsetWidth / 2 - this.scroller.clientWidth / 2 : this.scroller.scrollLeft;
     if (opts.userY !== undefined) {
@@ -195,9 +233,10 @@ export class Viewer extends EventTarget {
       top = v.div.offsetTop + p.y - 40;
       if (opts.userX !== undefined) left = v.div.offsetLeft + p.x - this.scroller.clientWidth / 2;
     }
-    this.scroller.scrollTo({ top, left, behavior: opts.smooth ? 'smooth' : 'auto' });
+    this.scroller.scrollTo({ top, left, behavior: opts.smooth && !this.paged ? 'smooth' : 'auto' });
     this.current = this.order.indexOf(v);
     this.dispatchEvent(new Event('pagechange'));
+    if (this.paged) this.scheduleRender();
   }
 
   /** Scrolls so that a box (CSS px relative to the page) is visible. */
